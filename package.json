@@ -1,11 +1,16 @@
 {
-  "name": "cli",
-  "module": "src/index.ts",
-  "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  }
+	"name": "cli",
+	"module": "src/index.ts",
+	"type": "module",
+	"scripts": {
+		"check": "biome check .",
+		"check:write": "biome check --write ."
+	},
+	"devDependencies": {
+		"@biomejs/biome": "1.9.4",
+		"@types/bun": "latest"
+	},
+	"peerDependencies": {
+		"typescript": "^5"
+	}
 }
