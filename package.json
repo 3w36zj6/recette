@@ -4,7 +4,8 @@
 	"type": "module",
 	"scripts": {
 		"check": "biome check .",
-		"check:write": "biome check --write ."
+		"check:write": "biome check --write .",
+		"test": "vitest --typecheck"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "1.9.4",
