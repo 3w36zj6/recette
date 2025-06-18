@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it } from "vitest";
 import { Cli, type Context } from "./cli";
 
 describe("Cli", () => {
@@ -47,22 +47,6 @@ describe("Cli", () => {
 		expect(receivedName).toBe("world");
 	});
 
-	it("should handle missing command argument", () => {
-		const cli = new Cli({ name: "test-cli" });
-		let executed = false;
-		let receivedName: string | undefined;
-
-		cli.command("hello [name]", (c) => {
-			executed = true;
-			receivedName = c.arg("name");
-		});
-
-		cli.run(["hello"]);
-
-		expect(executed).toBe(true);
-		expect(receivedName).toBeUndefined();
-	});
-
 	it("should handle multiple arguments", () => {
 		const cli = new Cli({ name: "test-cli" });
 		let receivedFirst: string | undefined;
@@ -85,6 +69,66 @@ describe("Cli", () => {
 		expect(receivedArgs?.first).toEqual("Alice");
 		expect(receivedArgs?.second).toEqual("Bob");
 		expect(receivedArgs?.third).toEqual("Charlie");
+	});
+
+	it("should handle optional arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedDir: string | undefined;
+		let executionCount = 0;
+
+		cli.command("list [dir?]", (c) => {
+			receivedDir = c.arg("dir");
+			executionCount++;
+		});
+
+		cli.run(["list", "src"]);
+		expect(receivedDir).toBe("src");
+		expect(executionCount).toBe(1);
+
+		cli.run(["list"]);
+		expect(receivedDir).toBeUndefined();
+		expect(executionCount).toBe(2);
+	});
+
+	it("should validate required arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		const originalError = console.error;
+		const originalLog = console.log;
+		let errorOutput = "";
+
+		console.error = (message: string) => {
+			errorOutput = message;
+		};
+		console.log = () => {};
+
+		cli.command("hello [name]", (c) => {
+			// This should not be called
+		});
+
+		cli.run(["hello"]);
+
+		console.error = originalError;
+		console.log = originalLog;
+		expect(errorOutput).toBe("Error: Required argument 'name' is missing");
+	});
+
+	it("should handle mixed required and optional arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedSrc: string | undefined;
+		let receivedDest: string | undefined;
+
+		cli.command("copy [src] [dest?]", (c) => {
+			receivedSrc = c.arg("src");
+			receivedDest = c.arg("dest");
+		});
+
+		cli.run(["copy", "file1.txt", "file2.txt"]);
+		expect(receivedSrc).toBe("file1.txt");
+		expect(receivedDest).toBe("file2.txt");
+
+		cli.run(["copy", "file1.txt"]);
+		expect(receivedSrc).toBe("file1.txt");
+		expect(receivedDest).toBeUndefined();
 	});
 
 	it("should show usage when no command provided", () => {

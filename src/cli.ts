@@ -7,18 +7,104 @@ export type CliOptions = {
 };
 
 /**
+ * Extract all bracket segments from command definition
+ * @example "copy [src] [dest?]" -> ["[src]", "[dest?]"]
+ */
+type ExtractBracketSegments<T extends string> =
+	T extends `${infer Before}[${infer Inside}]${infer After}`
+		? [`[${Inside}]`, ...ExtractBracketSegments<After>]
+		: [];
+
+/**
+ * Remove brackets and optional marker from a single bracket segment
+ * @example "[name?]" -> "name", "[src]" -> "src"
+ */
+type CleanBracketSegment<T extends string> = T extends `[${infer Content}]`
+	? Content extends `${infer Name}?`
+		? Name
+		: Content
+	: never;
+
+/**
+ * Check if a bracket segment is optional
+ * @example "[name?]" -> true, "[src]" -> false
+ */
+type IsBracketSegmentOptional<T extends string> = T extends `[${infer Content}]`
+	? Content extends `${string}?`
+		? true
+		: false
+	: false;
+
+/**
+ * Convert array of bracket segments to union of argument names
+ */
+type BracketSegmentsToArgs<T extends readonly string[]> = {
+	readonly [K in keyof T]: T[K] extends string
+		? CleanBracketSegment<T[K]>
+		: never;
+}[number];
+
+/**
+ * Filter bracket segments to only required ones, then convert to union
+ */
+type BracketSegmentsToRequiredArgs<T extends readonly string[]> = {
+	readonly [K in keyof T]: T[K] extends string
+		? IsBracketSegmentOptional<T[K]> extends false
+			? CleanBracketSegment<T[K]>
+			: never
+		: never;
+}[number];
+
+/**
+ * Filter bracket segments to only optional ones, then convert to union
+ */
+type BracketSegmentsToOptionalArgs<T extends readonly string[]> = {
+	readonly [K in keyof T]: T[K] extends string
+		? IsBracketSegmentOptional<T[K]> extends true
+			? CleanBracketSegment<T[K]>
+			: never
+		: never;
+}[number];
+
+/**
  * Utility type to extract argument names from command definition strings.
  * @example
  * ```typescript
  * type Example1 = ExtractArgs<"hello [name] [age]">; // "name" | "age"
  * type Example2 = ExtractArgs<"build">; // never
  * type Example3 = ExtractArgs<"greet [first] [last]">; // "first" | "last"
+ * type Example4 = ExtractArgs<"list [dir?]">; // "dir"
  * ```
  */
-type ExtractArgs<T extends string> =
-	T extends `${string}[${infer Arg}]${infer Rest}`
-		? Arg | ExtractArgs<Rest>
-		: never;
+type ExtractArgs<T extends string> = BracketSegmentsToArgs<
+	ExtractBracketSegments<T>
+>;
+
+/**
+ * Utility type to extract required argument names from command definition strings.
+ * @example
+ * ```typescript
+ * type Example1 = ExtractRequiredArgs<"hello [name]">; // "name"
+ * type Example2 = ExtractRequiredArgs<"list [dir?]">; // never
+ * type Example3 = ExtractRequiredArgs<"build [src?] [dest]">; // "dest"
+ * ```
+ */
+type ExtractRequiredArgs<T extends string> = BracketSegmentsToRequiredArgs<
+	ExtractBracketSegments<T>
+>;
+
+/**
+ * Utility type to extract optional argument names from command definition strings.
+ * @example
+ * ```typescript
+ * type Example1 = ExtractOptionalArgs<"list [dir?]">; // "dir"
+ * type Example2 = ExtractOptionalArgs<"hello [name]">; // never
+ * type Example3 = ExtractOptionalArgs<"build [src?] [dest]">; // "src"
+ * ```
+ */
+type ExtractOptionalArgs<T extends string> = BracketSegmentsToOptionalArgs<
+	ExtractBracketSegments<T>
+>;
 
 /**
  * Context object passed to command handlers containing parsed arguments.
@@ -28,7 +114,11 @@ export type Context<T extends string = string> = {
 	/** Raw parsed arguments object */
 	args: Record<string, string | string[]>;
 	/** Type-safe method to access named arguments from command definition */
-	arg: <K extends ExtractArgs<T>>(name: K) => string | undefined;
+	arg: ExtractArgs<T> extends never
+		? (name: never) => never
+		: <K extends ExtractArgs<T>>(
+				name: K,
+			) => K extends ExtractOptionalArgs<T> ? string | undefined : string;
 };
 
 /**
@@ -69,8 +159,9 @@ export class Cli {
 	 * // Run with custom arguments
 	 * cli.run(['hello', 'world']);
 	 *
-	 * // Run with multiple arguments
-	 * cli.run(['greet', 'John', 'Doe']);
+	 * // Run with optional arguments
+	 * cli.run(['list']); // dir is optional
+	 * cli.run(['list', 'src']); // dir provided
 	 * ```
 	 */
 	run(args?: string[]) {
@@ -92,13 +183,21 @@ export class Cli {
 		const [commandDef, handler] = commandEntry;
 		const parsedArgs = this.parseCommandArgs(commandDef, restArgs);
 
-		const context: Context<string> = {
+		try {
+			this.validateArgs(commandDef, parsedArgs);
+		} catch (error) {
+			console.error(`Error: ${(error as Error).message}`);
+			this.showUsage();
+			return;
+		}
+
+		const context = {
 			args: parsedArgs,
-			arg: (name: string) => {
+			arg: (name) => {
 				const value = parsedArgs[name];
 				return typeof value === "string" ? value : undefined;
 			},
-		};
+		} as Context<string>;
 
 		handler(context);
 	}
@@ -272,16 +371,75 @@ export class Cli {
 	/**
 	 * Extracts argument names from a command definition string.
 	 * @param commandDef - Command definition string
-	 * @returns Array of argument names found in brackets
+	 * @returns Array of argument names found in brackets (with optional markers removed)
 	 * @example
 	 * ```typescript
 	 * this.extractArgNames("hello [name]"); // returns ["name"]
+	 * this.extractArgNames("list [dir?]"); // returns ["dir"]
+	 * this.extractArgNames("build [src?] [dest]"); // returns ["src", "dest"]
 	 * this.extractArgNames("greet [first] [last]"); // returns ["first", "last"]
 	 * this.extractArgNames("build"); // returns []
 	 * ```
 	 */
 	private extractArgNames(commandDef: string): string[] {
 		const matches = commandDef.match(/\[([^\]]+)\]/g);
-		return matches ? matches.map((match) => match.slice(1, -1)) : [];
+		return matches
+			? matches.map((match) => {
+					// Remove brackets and optional marker
+					const argName = match.slice(1, -1);
+					return argName.endsWith("?") ? argName.slice(0, -1) : argName;
+				})
+			: [];
+	}
+
+	/**
+	 * Extracts argument metadata from a command definition string.
+	 * @param commandDef - Command definition string
+	 * @returns Array of argument metadata with optional flags
+	 * @example
+	 * ```typescript
+	 * this.extractArgMetadata("list [dir?]");
+	 * // returns [{ name: "dir", optional: true }]
+	 *
+	 * this.extractArgMetadata("build [src?] [dest]");
+	 * // returns [{ name: "src", optional: true }, { name: "dest", optional: false }]
+	 * ```
+	 */
+	private extractArgMetadata(
+		commandDef: string,
+	): Array<{ name: string; optional: boolean }> {
+		const matches = commandDef.match(/\[([^\]]+)\]/g);
+		return matches
+			? matches.map((match) => {
+					const argWithBrackets = match.slice(1, -1);
+					const optional = argWithBrackets.endsWith("?");
+					const name = optional
+						? argWithBrackets.slice(0, -1)
+						: argWithBrackets;
+					return { name, optional };
+				})
+			: [];
+	}
+
+	/**
+	 * Validates command arguments based on the command definition.
+	 * @param commandDef - Command definition string
+	 * @param parsedArgs - Parsed arguments object
+	 * @throws Error if required arguments are missing
+	 */
+	private validateArgs(
+		commandDef: string,
+		parsedArgs: Record<string, string | string[]>,
+	): void {
+		const argMetadata = this.extractArgMetadata(commandDef);
+
+		for (const { name, optional } of argMetadata) {
+			if (
+				!optional &&
+				(parsedArgs[name] === undefined || parsedArgs[name] === "")
+			) {
+				throw new Error(`Required argument '${name}' is missing`);
+			}
+		}
 	}
 }
