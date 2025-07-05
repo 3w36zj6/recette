@@ -185,4 +185,110 @@ describe("Cli", () => {
 		cli.run(["cmd2"]);
 		expect(command2Executed).toBe(true);
 	});
+
+	it("should parse flags (long and short) correctly", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedLong: boolean | undefined;
+		let receivedAll: boolean | undefined;
+
+		cli.command("list --long|-l --all|-a", (c) => {
+			receivedLong = c.flag("long");
+			receivedAll = c.flag("all");
+		});
+
+		cli.run(["list", "--long", "--all"]);
+		expect(receivedLong).toBe(true);
+		expect(receivedAll).toBe(true);
+
+		cli.run(["list", "-l"]);
+		expect(receivedLong).toBe(true);
+		expect(receivedAll).toBe(false);
+
+		cli.run(["list", "-a"]);
+		expect(receivedLong).toBe(false);
+		expect(receivedAll).toBe(true);
+
+		cli.run(["list"]);
+		expect(receivedLong).toBe(false);
+		expect(receivedAll).toBe(false);
+	});
+
+	it("should parse long-only flags", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedVerbose: boolean | undefined;
+
+		cli.command("build --verbose", (c) => {
+			receivedVerbose = c.flag("verbose");
+		});
+
+		cli.run(["build", "--verbose"]);
+		expect(receivedVerbose).toBe(true);
+
+		cli.run(["build"]);
+		expect(receivedVerbose).toBe(false);
+	});
+
+	it("should throw on short-only flags", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo -f", (c) => {
+				// @ts-expect-error
+				c.flag("f");
+			});
+			cli.run(["foo", "-f"]);
+		}).toThrowError(/Invalid flag definition/);
+	});
+
+	it("should throw on invalid flag patterns", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo -f|--flag", (c) => {
+				// @ts-expect-error
+				c.flag("flag");
+			});
+			cli.run(["foo", "--flag"]);
+		}).toThrowError(/Invalid flag definition/);
+
+		expect(() => {
+			cli.command("foo --flag|--f", (c) => {
+				// @ts-expect-error
+				c.flag("flag");
+			});
+			cli.run(["foo", "--flag"]);
+		}).toThrowError(/Invalid flag definition/);
+	});
+
+	it("should throw on long flag with only one character", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("build --v", (c) => {
+				// @ts-expect-error
+				c.flag("v");
+			});
+			cli.run(["build", "--v"]);
+		}).toThrowError(/Invalid flag definition/);
+	});
+
+	it("should parse multiple mixed flags", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedBar: boolean | undefined;
+		let receivedBaz: boolean | undefined;
+
+		cli.command("foo --bar|-b --baz", (c) => {
+			receivedBar = c.flag("bar");
+			receivedBaz = c.flag("baz");
+		});
+
+		cli.run(["foo", "--bar", "--baz"]);
+		expect(receivedBar).toBe(true);
+		expect(receivedBaz).toBe(true);
+
+		cli.run(["foo", "-b"]);
+		expect(receivedBar).toBe(true);
+		expect(receivedBaz).toBe(false);
+
+		cli.run(["foo"]);
+		expect(receivedBar).toBe(false);
+		expect(receivedBaz).toBe(false);
+	});
 });

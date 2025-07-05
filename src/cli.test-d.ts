@@ -76,4 +76,54 @@ describe("Cli", () => {
 			expectTypeOf(anyArg).toEqualTypeOf<never>();
 		});
 	});
+
+	it("should not allow short-only flag definitions", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("foo -f", (c) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.flag("f");
+		});
+	});
+
+	it("should not allow wrong order or double long flag definitions", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("foo -f|--flag", (c) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.flag("flag");
+		});
+
+		cli.command("foo --flag|--f", (c) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.flag("flag");
+		});
+	});
+
+	it("should not allow long flag with only one character", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("build --v", (c) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.flag("v");
+		});
+	});
+
+	it("should correctly infer types for multiple mixed flags", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("foo --bar|-b --baz", (c) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<"bar" | "baz">();
+
+			const bar = c.flag("bar");
+			expectTypeOf(bar).toEqualTypeOf<boolean>();
+
+			const baz = c.flag("baz");
+			expectTypeOf(baz).toEqualTypeOf<boolean>();
+		});
+	});
 });
