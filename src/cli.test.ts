@@ -291,4 +291,171 @@ describe("Cli", () => {
 		expect(receivedBar).toBe(false);
 		expect(receivedBaz).toBe(false);
 	});
+
+	it("should parse long option with equal sign (--message=hello)", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+
+		cli.run(["commit", "--message=hello"]);
+		expect(receivedMessage).toBe("hello");
+	});
+
+	it("should parse long option with space (--message hello)", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+
+		cli.run(["commit", "--message", "hello"]);
+		expect(receivedMessage).toBe("hello");
+	});
+
+	it("should parse short option with space (-m hello)", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message|-m=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+
+		cli.run(["commit", "-m", "hello"]);
+		expect(receivedMessage).toBe("hello");
+	});
+
+	it("should return undefined for missing option", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+
+		cli.run(["commit"]);
+		expect(receivedMessage).toBeUndefined();
+	});
+
+	it("should parse multiple options", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+		let receivedAuthor: string | undefined;
+
+		cli.command("commit --message|-m=<string> --author=<string>", (c) => {
+			receivedMessage = c.option("message");
+			receivedAuthor = c.option("author");
+		});
+
+		cli.run(["commit", "--message=hi", "--author", "foo"]);
+		expect(receivedMessage).toBe("hi");
+		expect(receivedAuthor).toBe("foo");
+	});
+
+	it("should parse options mixed with flags and args", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+		let receivedLong: boolean | undefined;
+		let receivedName: string | undefined;
+
+		cli.command("commit [name] --message=<string> --long|-l", (c) => {
+			receivedMessage = c.option("message");
+			receivedLong = c.flag("long");
+			receivedName = c.arg("name");
+		});
+
+		cli.run(["commit", "alice", "--message", "hi", "--long"]);
+		expect(receivedMessage).toBe("hi");
+		expect(receivedLong).toBe(true);
+		expect(receivedName).toBe("alice");
+	});
+
+	it("should ignore unknown options", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+
+		cli.run(["commit", "--unknown", "foo"]);
+		expect(receivedMessage).toBeUndefined();
+	});
+
+	it("should not treat next flag as option value", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+		let receivedLong: boolean | undefined;
+
+		cli.command("commit --message=<string> --long", (c) => {
+			receivedMessage = c.option("message");
+			receivedLong = c.flag("long");
+		});
+
+		cli.run(["commit", "--message", "--long"]);
+		expect(receivedMessage).toBeUndefined();
+		expect(receivedLong).toBe(true);
+	});
+
+	it("should parse both long and short option names", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message|-m=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+
+		cli.run(["commit", "-m", "hello"]);
+		expect(receivedMessage).toBe("hello");
+
+		cli.run(["commit", "--message", "world"]);
+		expect(receivedMessage).toBe("world");
+	});
+
+	it("should throw on short-only option", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo -m=<string>", (c) => {
+				// @ts-expect-error
+				c.option("m");
+			});
+			cli.run(["foo", "-m", "val"]);
+		}).toThrowError(/Invalid option definition/);
+	});
+
+	it("should throw on long option with only one character", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo --m=<string>", (c) => {
+				// @ts-expect-error
+				c.option("m");
+			});
+			cli.run(["foo", "--m", "val"]);
+		}).toThrowError(/Invalid option definition/);
+	});
+
+	it("should throw on double long option", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo --option|--o=<string>", (c) => {
+				// @ts-expect-error
+				c.option("option");
+			});
+			cli.run(["foo", "--option", "val"]);
+		}).toThrowError(/Invalid (option|flag) definition/);
+	});
+
+	it("should throw on wrong order of short/long option", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo -m|--option=<string>", (c) => {
+				// @ts-expect-error
+				c.option("option");
+			});
+			cli.run(["foo", "-m", "val"]);
+		}).toThrowError(/Invalid (option|flag) definition/);
+	});
 });

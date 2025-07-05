@@ -165,19 +165,81 @@ type ExtractFlagSegments<T extends string> =
 					: [];
 
 /**
- * Returns true if the command definition contains invalid flag patterns.
+ * Splits a string into tokens separated by spaces.
  * @example
- * HasInvalidFlag<"foo --long|--l"> // true
- * HasInvalidFlag<"foo --long|-l"> // false
+ * SplitTokens<"foo --bar|-b --baz"> // ["foo", "--bar|-b", "--baz"]
  */
-type HasInvalidFlag<T extends string> =
-	T extends `${string}--${string}|--${string}${string}`
-		? true
-		: T extends `${string}-${string}|--${string}${string}`
-			? true
-			: T extends `${string}-`
-				? true
+type SplitTokens<
+	T extends string,
+	Acc extends string[] = [],
+> = T extends `${infer Head} ${infer Tail}`
+	? SplitTokens<Tail, [...Acc, Head]>
+	: T extends ""
+		? Acc
+		: [...Acc, T];
+
+/**
+ * Filters valid option segments from a list of tokens.
+ * @example
+ * FilterValidOptionTokens<["foo", "--bar|-b=<string>", "--baz=<string>"]> // ["--bar|-b=<string>", "--baz=<string>"]
+ */
+type FilterValidOptionTokens<Tokens extends readonly string[]> =
+	Tokens extends [infer Head, ...infer Tail]
+		? Head extends string
+			? IsValidOptionSegment<Head> extends true
+				? [Head, ...FilterValidOptionTokens<Tail extends string[] ? Tail : []>]
+				: FilterValidOptionTokens<Tail extends string[] ? Tail : []>
+			: []
+		: [];
+
+/**
+ * Filters valid flag segments from a list of tokens.
+ * @example
+ * FilterValidFlagTokens<["foo", "--bar|-b", "--baz"]> // ["--bar|-b", "--baz"]
+ */
+type FilterValidFlagTokens<Tokens extends readonly string[]> = Tokens extends [
+	infer Head,
+	...infer Tail,
+]
+	? Head extends string
+		? IsValidFlagSegment<Head> extends true
+			? [Head, ...FilterValidFlagTokens<Tail extends string[] ? Tail : []>]
+			: FilterValidFlagTokens<Tail extends string[] ? Tail : []>
+		: []
+	: [];
+
+/**
+ * Returns true if the given flag segment is valid.
+ * @example
+ * IsValidFlagSegment<"--long|-l"> // true
+ * IsValidFlagSegment<"--flag|--f"> // false
+ * IsValidFlagSegment<"-f|--flag"> // false
+ * IsValidFlagSegment<"--l"> // false
+ */
+type IsValidFlagSegment<S extends string> = S extends `--${string}|--${string}`
+	? false
+	: S extends `-${string}|--${string}`
+		? false
+		: S extends `--${infer Long}|-${infer Short}`
+			? IsLong<Long> & IsShort<Short>
+			: S extends `--${infer Long}`
+				? IsLong<Long>
 				: false;
+
+/**
+ * Extracts the long name from a flag or option segment.
+ * @example
+ * ExtractLongName<"--bar|-b"> // "bar"
+ * ExtractLongName<"--bar=<string>"> // "bar"
+ * ExtractLongName<"--bar"> // "bar"
+ */
+type ExtractLongName<S extends string> = S extends `--${infer Long}|-${string}`
+	? Long
+	: S extends `--${infer Long}=<${string}>`
+		? Long
+		: S extends `--${infer Long}`
+			? Long
+			: never;
 
 /**
  * Extracts the union of all valid long flag names from a command definition string.
@@ -187,9 +249,96 @@ type HasInvalidFlag<T extends string> =
  * ExtractFlags<"build --verbose"> // "verbose"
  * ExtractFlags<"foo -f"> // never
  */
-type ExtractFlags<T extends string> = HasInvalidFlag<T> extends true
-	? never
-	: ExtractFlagSegments<T>[number];
+type ExtractFlags<T extends string> = FilterValidFlagTokens<
+	SplitTokens<T>
+> extends infer Arr
+	? Arr extends string[]
+		? ExtractLongName<Arr[number]>
+		: never
+	: never;
+
+/**
+ * Returns true if the given option segment is valid (long or long|short, both with value).
+ * @example
+ * IsValidOptionSegment<"--message=<string>"> // true
+ * IsValidOptionSegment<"--message|-m=<string>"> // true
+ * IsValidOptionSegment<"-m=<string>"> // false
+ * IsValidOptionSegment<"--m=<string>"> // false
+ * IsValidOptionSegment<"--option|--o=<string>"> // false
+ * IsValidOptionSegment<"-m|--option=<string>"> // false
+ */
+type IsValidOptionSegment<S extends string> =
+	S extends `--${string}|--${string}=<${string}>`
+		? false
+		: S extends `-${string}|--${string}=<${string}>`
+			? false
+			: S extends `--${infer Long}=<${string}>`
+				? IsLong<Long>
+				: S extends `--${infer Long}|-${infer Short}=<${string}>`
+					? IsLong<Long> & IsShort<Short>
+					: false;
+
+/**
+ * Returns true if all option segments in the command definition are valid.
+ * Only segments with a value (=<...>) are considered options.
+ * @example
+ * AllOptionsValid<"foo --bar=<string> --baz"> // true
+ * AllOptionsValid<"foo --bar|--b=<string>"> // false
+ */
+type AllOptionsValid<T extends string> = T extends `${infer Head} ${infer Tail}`
+	? Head extends `${string}=<${string}>`
+		? IsValidOptionSegment<Head> extends true
+			? AllOptionsValid<Tail>
+			: false
+		: AllOptionsValid<Tail>
+	: T extends `${string}=<${string}>`
+		? IsValidOptionSegment<T> extends true
+			? true
+			: false
+		: true;
+
+/**
+ * Extracts the union of all valid long option names from a command definition string.
+ * Returns never if the definition contains invalid option patterns.
+ * @example
+ * ExtractOptions<"foo --bar=<string> --baz=<string>"> // "bar" | "baz"
+ * ExtractOptions<"foo --bar|--b=<string>"> // never
+ */
+type ExtractOptions<T extends string> = AllOptionsValid<T> extends true
+	? FilterValidOptionTokens<SplitTokens<T>> extends infer Arr
+		? Arr extends string[]
+			? ExtractLongName<Arr[number]>
+			: never
+		: never
+	: never;
+
+/**
+ * Extracts all valid long option names from a command definition string.
+ * @example
+ * ExtractOptionSegments<"foo --bar|-b=<string> --baz=<string>"> // ["bar", "baz"]
+ */
+type ExtractOptionSegments<T extends string> =
+	T extends `${infer _Before}--${infer Long}|-${infer Short}=<${infer _Type}> ${infer After}`
+		? IsLong<Long> extends true
+			? IsShort<Short> extends true
+				? [Long, ...ExtractOptionSegments<After>]
+				: ExtractOptionSegments<After>
+			: ExtractOptionSegments<After>
+		: T extends `${infer _Before}--${infer Long}|-${infer Short}=<${infer _Type}>`
+			? IsLong<Long> extends true
+				? IsShort<Short> extends true
+					? [Long]
+					: []
+				: []
+			: T extends `${infer _Before}--${infer Long}=<${infer _Type}> ${infer After}`
+				? IsLong<Long> extends true
+					? [Long, ...ExtractOptionSegments<After>]
+					: ExtractOptionSegments<After>
+				: T extends `${infer _Before}--${infer Long}=<${infer _Type}>`
+					? IsLong<Long> extends true
+						? [Long]
+						: []
+					: [];
 
 /**
  * Context object passed to command handlers containing parsed arguments and flags.
@@ -212,6 +361,14 @@ export type Context<T extends string = string> = {
 	flag: ExtractFlags<T> extends never
 		? (name: never) => never
 		: <K extends ExtractFlags<T>>(name: K) => boolean;
+	/**
+	 * Type-safe method to access options from command definition.
+	 * @param name - The long option name (e.g. "message" for --message=<string>)
+	 * @returns The option value if present, undefined otherwise
+	 */
+	option: ExtractOptions<T> extends never
+		? (name: never) => never
+		: <K extends ExtractOptions<T>>(name: K) => string | undefined;
 };
 
 /**
@@ -276,6 +433,7 @@ export class Cli {
 		const [commandDef, handler] = commandEntry;
 		const parsedArgs = this.parseCommandArgs(commandDef, restArgs);
 		const parsedFlags = this.parseFlags(commandDef, restArgs);
+		const parsedOptions = this.parseOptions(commandDef, restArgs);
 
 		try {
 			this.validateArgs(commandDef, parsedArgs);
@@ -293,6 +451,9 @@ export class Cli {
 			},
 			flag: (name: string) => {
 				return !!parsedFlags[name];
+			},
+			option: (name: string) => {
+				return parsedOptions[name];
 			},
 		} as unknown as Context<string>;
 
@@ -584,8 +745,7 @@ export class Cli {
 
 	/**
 	 * Extracts flag definitions from a command definition string.
-	 * Throws an Error if the definition contains invalid flag patterns
-	 * (e.g. short-only, --flag|--f, -f|--flag, 1-character long flag).
+	 * Throws an Error if the definition contains invalid flag patterns.
 	 * @param commandDef - Command definition string
 	 * @returns Array of flag definitions { long, short }
 	 * @throws Error if the command definition contains invalid flag patterns
@@ -599,10 +759,10 @@ export class Cli {
 		commandDef: string,
 	): Array<{ long: string; short?: string }> {
 		if (
-			/--\w+\|--\w+/.test(commandDef) || // --flag|--f
-			/-\w+\|--\w+/.test(commandDef) || // -f|--flag
-			(/(?:^|\s)-\w+(?:\s|$)/.test(commandDef) && !/--/.test(commandDef)) || // short-only
-			/(?:^|\s)--[a-zA-Z](?:\s|$)/.test(commandDef) // 1-character long flag
+			/--\w+\|--\w+/.test(commandDef) ||
+			/-\w+\|--\w+/.test(commandDef) ||
+			(/(?:^|\s)-\w+(?:\s|$)/.test(commandDef) && !/--/.test(commandDef)) ||
+			/(?:^|\s)--[a-zA-Z](?:\s|$)/.test(commandDef)
 		) {
 			throw new Error(`Invalid flag definition in command: "${commandDef}"`);
 		}
@@ -616,6 +776,100 @@ export class Cli {
 				result.push({ long, short });
 			}
 			match = flagPattern.exec(commandDef);
+		}
+		return result;
+	}
+
+	/**
+	 * Parses options from command line arguments based on the command definition.
+	 * @param commandDef - Command definition string
+	 * @param args - Raw command line arguments
+	 * @returns Parsed options object with long option names as keys and string or undefined values
+	 * @example
+	 * this.parseOptions("commit --message=<string>", ["--message", "hi"]);
+	 * // returns { message: "hi" }
+	 */
+	private parseOptions(
+		commandDef: string,
+		args: string[],
+	): Record<string, string | undefined> {
+		const optionDefs = this.extractOptionDefs(commandDef);
+		const result: Record<string, string | undefined> = {};
+		for (const { long } of optionDefs) {
+			result[long] = undefined;
+		}
+		let i = 0;
+		while (i < args.length) {
+			const arg = args[i];
+			if (typeof arg !== "string") {
+				i++;
+				continue;
+			}
+			if (arg.startsWith("--")) {
+				const eqIdx = arg.indexOf("=");
+				if (eqIdx !== -1) {
+					const name = arg.slice(2, eqIdx);
+					const value = arg.slice(eqIdx + 1);
+					const def = optionDefs.find((o) => o.long === name);
+					if (def) result[def.long] = value;
+				} else {
+					const name = arg.slice(2);
+					const nextArg = args[i + 1];
+					const def = optionDefs.find((o) => o.long === name);
+					if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
+						result[def.long] = nextArg;
+						i++;
+					}
+				}
+			} else if (arg.startsWith("-") && arg.length === 2) {
+				const name = arg.slice(1);
+				const nextArg = args[i + 1];
+				const def = optionDefs.find((o) => o.short === name);
+				if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
+					result[def.long] = nextArg;
+					i++;
+				}
+			}
+			i++;
+		}
+		return result;
+	}
+
+	/**
+	 * Extracts option definitions from a command definition string.
+	 * Throws an Error if the definition contains invalid option patterns.
+	 * @param commandDef - Command definition string
+	 * @returns Array of option definitions { long, short }
+	 * @throws Error if the command definition contains invalid option patterns
+	 * @example
+	 * this.extractOptionDefs("commit --message=<string> --author=<string>");
+	 * // returns [{ long: "message", short: undefined }, { long: "author", short: undefined }]
+	 */
+	private extractOptionDefs(
+		commandDef: string,
+	): Array<{ long: string; short?: string }> {
+		if (/(?:^|\s)-[a-zA-Z]=<[\w-]+>/.test(commandDef)) {
+			throw new Error(`Invalid option definition in command: "${commandDef}"`);
+		}
+		const optionPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?=<[\w-]+>/g;
+		const result: Array<{ long: string; short?: string }> = [];
+		let match: RegExpExecArray | null = optionPattern.exec(commandDef);
+
+		while (match !== null) {
+			const long = match[1];
+			const short = match[2] ? match[2].slice(2) : undefined;
+
+			if (
+				typeof long !== "string" ||
+				long.length < 2 ||
+				(short && short.length !== 1)
+			) {
+				throw new Error(
+					`Invalid option definition in command: "${commandDef}"`,
+				);
+			}
+			result.push({ long, short });
+			match = optionPattern.exec(commandDef);
 		}
 		return result;
 	}

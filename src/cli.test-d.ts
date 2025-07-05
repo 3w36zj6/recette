@@ -126,4 +126,61 @@ describe("Cli", () => {
 			expectTypeOf(baz).toEqualTypeOf<boolean>();
 		});
 	});
+
+	it("should correctly infer types for options", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("commit --message=<string> --author=<string>", (c) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<"message" | "author">();
+
+			const message = c.option("message");
+			expectTypeOf(message).toEqualTypeOf<string | undefined>();
+
+			const author = c.option("author");
+			expectTypeOf(author).toEqualTypeOf<string | undefined>();
+		});
+
+		cli.command("foo --bar|-b=<string>", (c) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<"bar">();
+
+			const bar = c.option("bar");
+			expectTypeOf(bar).toEqualTypeOf<string | undefined>();
+		});
+	});
+
+	it("should not allow short-only option definitions", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("foo -m=<string>", (c) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.option("m");
+		});
+	});
+
+	it("should not allow long option with only one character", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("foo --m=<string>", (c) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.option("m");
+		});
+	});
+
+	it("should not allow double long option or wrong order", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("foo --option|--o=<string>", (c) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.option("option");
+		});
+
+		cli.command("foo -m|--option=<string>", (c) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
+			// @ts-expect-error
+			c.option("option");
+		});
+	});
 });
