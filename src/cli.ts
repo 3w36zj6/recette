@@ -394,6 +394,16 @@ export class Cli {
 	 * @returns The CLI instance for method chaining
 	 */
 	command<T extends string>(name: T, handler: (c: Context<T>) => void) {
+		const flagDefs = this.extractFlagDefs(name);
+		const optionDefs = this.extractOptionDefs(name);
+
+		const flagNames = new Set(flagDefs.map((f) => f.long));
+		for (const opt of optionDefs) {
+			if (flagNames.has(opt.long)) {
+				throw new Error(`Duplicate flag and option name: "${opt.long}"`);
+			}
+		}
+
 		this.commands.set(name, handler);
 		return this;
 	}
@@ -450,7 +460,8 @@ export class Cli {
 				return typeof value === "string" ? value : undefined;
 			},
 			flag: (name: string) => {
-				return !!parsedFlags[name];
+				const value = parsedFlags[name];
+				return value === undefined ? undefined : value;
 			},
 			option: (name: string) => {
 				return parsedOptions[name];
@@ -626,6 +637,25 @@ export class Cli {
 		return result;
 	}
 
+	private static readonly RESERVED_NAMES = [
+		"constructor",
+		"prototype",
+		"__proto__",
+	];
+
+	/**
+	 * Checks if a name is reserved and throws an error if so.
+	 * @param name - The name to check
+	 * @throws Error if the name is reserved
+	 */
+	private static checkReserved(name: string) {
+		if (Cli.RESERVED_NAMES.includes(name)) {
+			throw new Error(
+				`Reserved word used as argument/flag/option name: "${name}"`,
+			);
+		}
+	}
+
 	/**
 	 * Extracts argument names from a command definition string.
 	 * @param commandDef - Command definition string
@@ -641,13 +671,24 @@ export class Cli {
 	 */
 	private extractArgNames(commandDef: string): string[] {
 		const matches = commandDef.match(/\[([^\]]+)\]/g);
-		return matches
+		const names = matches
 			? matches.map((match) => {
-					// Remove brackets and optional marker
 					const argName = match.slice(1, -1);
-					return argName.endsWith("?") ? argName.slice(0, -1) : argName;
+					const cleanName = argName.endsWith("?")
+						? argName.slice(0, -1)
+						: argName;
+					Cli.checkReserved(cleanName);
+					return cleanName;
 				})
 			: [];
+		const seen = new Set<string>();
+		for (const name of names) {
+			if (seen.has(name)) {
+				throw new Error(`Duplicate argument name: "${name}"`);
+			}
+			seen.add(name);
+		}
+		return names;
 	}
 
 	/**
@@ -732,15 +773,13 @@ export class Cli {
 				if (def) result[def.long] = true;
 			}
 		}
-		if (flagDefs.length === 0) {
-			return new Proxy(
-				{},
-				{
-					get: () => undefined,
-				},
-			) as Record<string, undefined>;
-		}
-		return result;
+		return new Proxy(result, {
+			get(target, prop: string) {
+				return Object.prototype.hasOwnProperty.call(target, prop)
+					? target[prop]
+					: undefined;
+			},
+		}) as Record<string, boolean | undefined>;
 	}
 
 	/**
@@ -758,24 +797,48 @@ export class Cli {
 	private extractFlagDefs(
 		commandDef: string,
 	): Array<{ long: string; short?: string }> {
+		const optionPattern = /--[a-zA-Z][\w-]*(\|-[a-zA-Z])?=<[\w-]+>/g;
+		const commandDefWithoutOptions = commandDef.replace(optionPattern, "");
+
 		if (
-			/--\w+\|--\w+/.test(commandDef) ||
-			/-\w+\|--\w+/.test(commandDef) ||
-			(/(?:^|\s)-\w+(?:\s|$)/.test(commandDef) && !/--/.test(commandDef)) ||
-			/(?:^|\s)--[a-zA-Z](?:\s|$)/.test(commandDef)
+			/--\w+\|--\w+/.test(commandDefWithoutOptions) ||
+			/-\w+\|--\w+/.test(commandDefWithoutOptions) ||
+			(/(?:^|\s)-\w+(?:\s|$)/.test(commandDefWithoutOptions) &&
+				!/--/.test(commandDefWithoutOptions)) ||
+			/(?:^|\s)--[a-zA-Z](?:\s|$)/.test(commandDefWithoutOptions)
 		) {
 			throw new Error(`Invalid flag definition in command: "${commandDef}"`);
 		}
 		const flagPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?/g;
 		const result: Array<{ long: string; short?: string }> = [];
-		let match: RegExpExecArray | null = flagPattern.exec(commandDef);
+		const seenLong = new Set<string>();
+		const seenShort = new Set<string>();
+		let match: RegExpExecArray | null = flagPattern.exec(
+			commandDefWithoutOptions,
+		);
 		while (match !== null) {
 			const long = match[1];
 			const short = match[2] ? match[2].slice(2) : undefined;
+			if (!long) {
+				match = flagPattern.exec(commandDefWithoutOptions);
+				continue;
+			}
+			Cli.checkReserved(long);
+			if (short) Cli.checkReserved(short);
+			if (seenLong.has(long)) {
+				throw new Error(`Duplicate flag name: "${long}"`);
+			}
+			seenLong.add(long);
+			if (short) {
+				if (seenShort.has(short)) {
+					throw new Error(`Duplicate short flag name: "${short}"`);
+				}
+				seenShort.add(short);
+			}
 			if (typeof long === "string" && long.length >= 2) {
 				result.push({ long, short });
 			}
-			match = flagPattern.exec(commandDef);
+			match = flagPattern.exec(commandDefWithoutOptions);
 		}
 		return result;
 	}
@@ -848,16 +911,28 @@ export class Cli {
 	private extractOptionDefs(
 		commandDef: string,
 	): Array<{ long: string; short?: string }> {
-		if (/(?:^|\s)-[a-zA-Z]=<[\w-]+>/.test(commandDef)) {
+		if (
+			/(?:^|\s)-[a-zA-Z]=<[\w-]+>/.test(commandDef) ||
+			/--[a-zA-Z][\w-]*\|--[a-zA-Z][\w-]*=<[\w-]+>/.test(commandDef) ||
+			/-[a-zA-Z]\|--[a-zA-Z][\w-]*=<[\w-]+>/.test(commandDef)
+		) {
 			throw new Error(`Invalid option definition in command: "${commandDef}"`);
 		}
 		const optionPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?=<[\w-]+>/g;
 		const result: Array<{ long: string; short?: string }> = [];
+		const seenLong = new Set<string>();
+		const seenShort = new Set<string>();
 		let match: RegExpExecArray | null = optionPattern.exec(commandDef);
 
 		while (match !== null) {
 			const long = match[1];
 			const short = match[2] ? match[2].slice(2) : undefined;
+			if (typeof long !== "string") {
+				match = optionPattern.exec(commandDef);
+				continue;
+			}
+			Cli.checkReserved(long);
+			if (short) Cli.checkReserved(short);
 
 			if (
 				typeof long !== "string" ||
@@ -867,6 +942,16 @@ export class Cli {
 				throw new Error(
 					`Invalid option definition in command: "${commandDef}"`,
 				);
+			}
+			if (seenLong.has(long)) {
+				throw new Error(`Duplicate option name: "${long}"`);
+			}
+			seenLong.add(long);
+			if (short) {
+				if (seenShort.has(short)) {
+					throw new Error(`Duplicate short option name: "${short}"`);
+				}
+				seenShort.add(short);
 			}
 			result.push({ long, short });
 			match = optionPattern.exec(commandDef);

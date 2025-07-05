@@ -131,6 +131,16 @@ describe("Cli", () => {
 		expect(receivedDest).toBeUndefined();
 	});
 
+	it("should not allow duplicate argument names", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [bar] [bar]", (c) => {
+				c.arg("bar");
+			});
+			cli.run(["foo", "a", "b"]);
+		}).toThrowError(/Duplicate argument name: "bar"/);
+	});
+
 	it("should show usage when no command provided", () => {
 		const cli = new Cli({ name: "test-cli" });
 		const originalLog = console.log;
@@ -457,5 +467,126 @@ describe("Cli", () => {
 			});
 			cli.run(["foo", "-m", "val"]);
 		}).toThrowError(/Invalid (option|flag) definition/);
+	});
+
+	it("should not allow duplicate flag or option names", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo --bar|-b --bar|-c", (c) => {
+				c.flag("bar");
+			});
+			cli.run(["foo", "--bar"]);
+		}).toThrowError(/Duplicate flag name: "bar"/);
+		expect(() => {
+			cli.command("foo --opt=<string> --opt=<string>", (c) => {
+				c.option("opt");
+			});
+			cli.run(["foo", "--opt", "val"]);
+		}).toThrowError(/Duplicate option name: "opt"/);
+	});
+
+	it("should not allow flag and option with the same name", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo --bar --bar=<string>", (c) => {
+				c.option("bar");
+			});
+			cli.run(["foo", "--bar", "--bar", "val"]);
+		}).toThrowError(/Duplicate flag and option name: "bar"/);
+	});
+
+	it("should return undefined for unknown flag or option", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let unknownFlag: boolean | undefined;
+		let unknownOption: string | undefined;
+
+		cli.command("foo --bar --baz=<string>", (c) => {
+			// @ts-expect-error
+			unknownFlag = c.flag("unknown");
+			// @ts-expect-error
+			unknownOption = c.option("unknown");
+		});
+		cli.run(["foo", "--bar", "--baz", "val"]);
+		expect(unknownFlag).toBeUndefined();
+		expect(unknownOption).toBeUndefined();
+	});
+
+	it("should treat empty string option value as valid", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+		cli.run(["commit", "--message", ""]);
+		expect(receivedMessage).toBe("");
+	});
+
+	it("should not allow reserved words as argument, flag, or option names", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo --constructor=<string>", (c) => {
+				c.option("constructor");
+			});
+			cli.run(["foo", "--constructor", "val"]);
+		}).toThrowError(
+			/Reserved word used as argument\/flag\/option name: "constructor"/,
+		);
+		expect(() => {
+			cli.command("foo --prototype", (c) => {
+				c.flag("prototype");
+			});
+			cli.run(["foo", "--prototype"]);
+		}).toThrowError(
+			/Reserved word used as argument\/flag\/option name: "prototype"/,
+		);
+		expect(() => {
+			cli.command("foo [__proto__]", (c) => {
+				c.arg("__proto__");
+			});
+			cli.run(["foo", "val"]);
+		}).toThrowError(
+			/Reserved word used as argument\/flag\/option name: "__proto__"/,
+		);
+	});
+
+	it("should handle run with empty array or undefined", () => {
+		const cli = new Cli({ name: "test-cli" });
+		const originalLog = console.log;
+		let logOutput = "";
+		console.log = (msg: string) => {
+			logOutput = msg;
+		};
+
+		cli.run([]);
+		expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
+
+		logOutput = "";
+		cli.run(undefined);
+		expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
+
+		console.log = originalLog;
+	});
+
+	it("should handle option value with spaces if quoted", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+		cli.run(["commit", "--message", "hello world"]);
+		expect(receivedMessage).toBe("hello world");
+	});
+
+	it("should treat multiple option values as last one wins", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedMessage: string | undefined;
+
+		cli.command("commit --message=<string>", (c) => {
+			receivedMessage = c.option("message");
+		});
+		cli.run(["commit", "--message", "first", "--message", "second"]);
+		expect(receivedMessage).toBe("second");
 	});
 });
