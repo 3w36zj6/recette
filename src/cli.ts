@@ -48,22 +48,52 @@ type BracketSegmentsToArgs<T extends readonly string[]> = {
  * Filter bracket segments to only required ones, then convert to union
  */
 type BracketSegmentsToRequiredArgs<T extends readonly string[]> = {
-	readonly [K in keyof T]: T[K] extends string
-		? IsBracketSegmentOptional<T[K]> extends false
-			? CleanBracketSegment<T[K]>
-			: never
-		: never;
+	readonly [K in keyof T]: T[K] extends `[...${string}]`
+		? never
+		: T[K] extends string
+			? IsBracketSegmentOptional<T[K]> extends false
+				? CleanBracketSegment<T[K]>
+				: never
+			: never;
 }[number];
 
 /**
  * Filter bracket segments to only optional ones, then convert to union
  */
 type BracketSegmentsToOptionalArgs<T extends readonly string[]> = {
-	readonly [K in keyof T]: T[K] extends string
-		? IsBracketSegmentOptional<T[K]> extends true
-			? CleanBracketSegment<T[K]>
-			: never
-		: never;
+	readonly [K in keyof T]: T[K] extends `[...${string}]`
+		? never
+		: T[K] extends string
+			? IsBracketSegmentOptional<T[K]> extends true
+				? CleanBracketSegment<T[K]>
+				: never
+			: never;
+}[number];
+
+/**
+ * Returns true if the given bracket segment is a variadic argument.
+ * @example
+ * IsVariadicBracket<"[...files]"> // true
+ * IsVariadicBracket<"[name]"> // false
+ */
+type IsVariadicBracket<T extends string> = T extends `[...${string}]`
+	? true
+	: false;
+
+/**
+ * Converts an array of bracket segments to a union of argument names,
+ * excluding variadic arguments.
+ * @example
+ * BracketSegmentsToArgsWithoutVariadic<["[file]", "[...files]"]> // "file"
+ */
+type BracketSegmentsToArgsWithoutVariadic<T extends readonly string[]> = {
+	[K in keyof T]: T[K] extends `[...${string}]`
+		? never
+		: T[K] extends `[${infer Content}]`
+			? Content extends `${infer Name}?`
+				? Name
+				: Content
+			: never;
 }[number];
 
 /**
@@ -76,7 +106,7 @@ type BracketSegmentsToOptionalArgs<T extends readonly string[]> = {
  * type Example4 = ExtractArgs<"list [dir?]">; // "dir"
  * ```
  */
-type ExtractArgs<T extends string> = BracketSegmentsToArgs<
+type ExtractArgs<T extends string> = BracketSegmentsToArgsWithoutVariadic<
 	ExtractBracketSegments<T>
 >;
 
@@ -135,34 +165,33 @@ type IsShort<S extends string> = S extends `${infer A}`
 			: false
 	: false;
 
+type StrictTupleToUnion<T extends readonly unknown[]> =
+	T[number] extends infer U ? (string extends U ? never : U) : never;
+
 /**
  * Extracts all valid long flag names from a command definition string.
  * @example
  * ExtractFlagSegments<"list --long|-l --all|-a"> // ["long", "all"]
  * ExtractFlagSegments<"foo --bar|-b --baz"> // ["bar", "baz"]
  */
-type ExtractFlagSegments<T extends string> =
-	T extends `${infer _Before}--${infer Long}|-${infer Short} ${infer After}`
-		? IsLong<Long> extends true
-			? IsShort<Short> extends true
-				? [Long, ...ExtractFlagSegments<After>]
-				: ExtractFlagSegments<After>
-			: ExtractFlagSegments<After>
-		: T extends `${infer _Before}--${infer Long}|-${infer Short}`
-			? IsLong<Long> extends true
-				? IsShort<Short> extends true
-					? [Long]
-					: []
-				: []
-			: T extends `${infer _Before}--${infer Long} ${infer After}`
-				? IsLong<Long> extends true
-					? [Long, ...ExtractFlagSegments<After>]
-					: ExtractFlagSegments<After>
-				: T extends `${infer _Before}--${infer Long}`
-					? IsLong<Long> extends true
-						? [Long]
-						: []
-					: [];
+type ExtractFlagSegments<T extends string> = FilterValidFlagTokens<
+	SplitTokens<T>
+> extends infer Arr
+	? Arr extends readonly string[]
+		? ExtractLongNamesFromTuple<Arr>
+		: never
+	: never;
+
+type ExtractLongNamesFromTuple<T extends readonly string[]> = T extends [
+	infer Head,
+	...infer Tail,
+]
+	? Head extends string
+		?
+				| ExtractLongName<Head>
+				| ExtractLongNamesFromTuple<Tail extends string[] ? Tail : []>
+		: never
+	: never;
 
 /**
  * Splits a string into tokens separated by spaces.
@@ -202,8 +231,10 @@ type FilterValidFlagTokens<Tokens extends readonly string[]> = Tokens extends [
 	...infer Tail,
 ]
 	? Head extends string
-		? IsValidFlagSegment<Head> extends true
-			? [Head, ...FilterValidFlagTokens<Tail extends string[] ? Tail : []>]
+		? Head extends `--${string}`
+			? IsValidFlagSegment<Head> extends true
+				? [Head, ...FilterValidFlagTokens<Tail extends string[] ? Tail : []>]
+				: FilterValidFlagTokens<Tail extends string[] ? Tail : []>
 			: FilterValidFlagTokens<Tail extends string[] ? Tail : []>
 		: []
 	: [];
@@ -216,15 +247,17 @@ type FilterValidFlagTokens<Tokens extends readonly string[]> = Tokens extends [
  * IsValidFlagSegment<"-f|--flag"> // false
  * IsValidFlagSegment<"--l"> // false
  */
-type IsValidFlagSegment<S extends string> = S extends `--${string}|--${string}`
+type IsValidFlagSegment<S extends string> = S extends `${string}=<${string}>`
 	? false
-	: S extends `-${string}|--${string}`
+	: S extends `--${string}|--${string}`
 		? false
-		: S extends `--${infer Long}|-${infer Short}`
-			? IsLong<Long> & IsShort<Short>
-			: S extends `--${infer Long}`
-				? IsLong<Long>
-				: false;
+		: S extends `-${string}|--${string}`
+			? false
+			: S extends `--${infer Long}|-${infer Short}`
+				? IsLong<Long> & IsShort<Short>
+				: S extends `--${infer Long}`
+					? IsLong<Long>
+					: true;
 
 /**
  * Extracts the long name from a flag or option segment.
@@ -241,6 +274,25 @@ type ExtractLongName<S extends string> = S extends `--${infer Long}|-${string}`
 			? Long
 			: never;
 
+type AllFlagsValid<T extends string[]> = T extends [infer Head, ...infer Tail]
+	? Head extends string
+		? IsValidFlagSegment<Head> extends true
+			? AllFlagsValid<Tail extends string[] ? Tail : []>
+			: false
+		: false
+	: true;
+
+/**
+ * Returns true if the command definition contains only valid flag patterns.
+ * @example
+ * IsValidFlagPattern<"--foo|-f"> // true
+ * IsValidFlagPattern<"-f|--foo"> // false
+ * IsValidFlagPattern<"--foo|--f"> // false
+ */
+type IsValidFlagPattern<T extends string> = AllFlagsValid<
+	FilterValidFlagTokens<SplitTokens<T>>
+>;
+
 /**
  * Extracts the union of all valid long flag names from a command definition string.
  * Returns never if the definition contains invalid flag patterns.
@@ -249,12 +301,8 @@ type ExtractLongName<S extends string> = S extends `--${infer Long}|-${string}`
  * ExtractFlags<"build --verbose"> // "verbose"
  * ExtractFlags<"foo -f"> // never
  */
-type ExtractFlags<T extends string> = FilterValidFlagTokens<
-	SplitTokens<T>
-> extends infer Arr
-	? Arr extends string[]
-		? ExtractLongName<Arr[number]>
-		: never
+type ExtractFlags<T extends string> = IsValidFlagPattern<T> extends true
+	? ExtractFlagSegments<T>
 	: never;
 
 /**
@@ -341,18 +389,43 @@ type ExtractOptionSegments<T extends string> =
 					: [];
 
 /**
+ * Utility type to extract argument accessors from command definition strings.
+ * @example
+ * type Example1 = ExtractArgsType<"copy [src] [dest?]">; // { (name: "src"): string; (name: "dest"): string | undefined }
+ * type Example2 = ExtractArgsType<"hello [name]">; // (name: "name") => string
+ * type Example3 = ExtractArgsType<"list [dir?]">; // (name: "dir") => string | undefined
+ * type Example4 = ExtractArgsType<"status">; // (name: never) => never
+ */
+type ExtractArgsType<T extends string> = [ExtractArgs<T>] extends [never]
+	? (name: never) => never
+	: [ExtractRequiredArgs<T>] extends [never]
+		? <K extends ExtractOptionalArgs<T>>(name: K) => string | undefined
+		: [ExtractOptionalArgs<T>] extends [never]
+			? <K extends ExtractRequiredArgs<T>>(name: K) => string
+			: {
+					<K extends ExtractRequiredArgs<T>>(name: K): string;
+					<K extends ExtractOptionalArgs<T>>(name: K): string | undefined;
+				};
+
+/**
+ * Extracts the name of a variadic argument from a command definition string.
+ * @example
+ * ExtractVariadicArgName<"remove [...files]"> // "files"
+ */
+type ExtractVariadicArgName<T extends string> =
+	T extends `${string}[...${infer Name}]${string}` ? Name : never;
+
+/**
  * Context object passed to command handlers containing parsed arguments and flags.
  * @template T - The command definition string used for type-safe argument/flag access
  */
 export type Context<T extends string = string> = {
-	/** Raw parsed arguments object */
-	args: Record<string, string | string[]>;
 	/** Type-safe method to access named arguments from command definition */
-	arg: ExtractArgs<T> extends never
+	arg: ExtractArgsType<T>;
+	/** Type-safe method to access variadic arguments from command definition */
+	args: ExtractVariadicArgName<T> extends never
 		? (name: never) => never
-		: <K extends ExtractArgs<T>>(
-				name: K,
-			) => K extends ExtractOptionalArgs<T> ? string | undefined : string;
+		: <K extends ExtractVariadicArgName<T>>(name: K) => string[];
 	/**
 	 * Type-safe method to access boolean flags from command definition.
 	 * @param name - The long flag name (e.g. "long" for --long|-l)
@@ -376,7 +449,11 @@ export type Context<T extends string = string> = {
  */
 export class Cli {
 	private name: string;
-	private commands: Map<string, (c: Context<string>) => void> = new Map();
+	private commands: Map<
+		string,
+		// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
+		{ def: string; handler: (c: Context<any>) => void }
+	> = new Map();
 
 	/**
 	 * Creates a new CLI instance.
@@ -404,7 +481,20 @@ export class Cli {
 			}
 		}
 
-		this.commands.set(name, handler);
+		const argNames = this.extractArgNames(name);
+		const seen = new Set<string>();
+		for (const arg of argNames) {
+			if (seen.has(arg)) {
+				throw new Error(`Duplicate argument name: "${arg}"`);
+			}
+			seen.add(arg);
+		}
+
+		this.commands.set(name, {
+			def: name,
+			// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
+			handler: handler as (c: Context<any>) => void,
+		});
 		return this;
 	}
 
@@ -440,7 +530,7 @@ export class Cli {
 			return;
 		}
 
-		const [commandDef, handler] = commandEntry;
+		const { def: commandDef, handler } = commandEntry;
 		const parsedArgs = this.parseCommandArgs(commandDef, restArgs);
 		const parsedFlags = this.parseFlags(commandDef, restArgs);
 		const parsedOptions = this.parseOptions(commandDef, restArgs);
@@ -454,19 +544,32 @@ export class Cli {
 		}
 
 		const context = {
-			args: parsedArgs,
-			arg: (name: string) => {
+			arg: ((name: string) => {
 				const value = parsedArgs[name];
 				return typeof value === "string" ? value : undefined;
-			},
-			flag: (name: string) => {
+			}) as unknown as ExtractArgsType<typeof commandDef>,
+			args: ((name: string) => {
+				const value = parsedArgs[name];
+				return Array.isArray(value) ? value : [];
+			}) as unknown as ExtractVariadicArgName<typeof commandDef> extends never
+				? (name: never) => never
+				: <K extends ExtractVariadicArgName<typeof commandDef>>(
+						name: K,
+					) => string[],
+			flag: ((name: string) => {
 				const value = parsedFlags[name];
 				return value === undefined ? undefined : value;
-			},
-			option: (name: string) => {
+			}) as unknown as ExtractFlags<typeof commandDef> extends never
+				? (name: never) => never
+				: <K extends ExtractFlags<typeof commandDef>>(name: K) => boolean,
+			option: ((name: string) => {
 				return parsedOptions[name];
-			},
-		} as unknown as Context<string>;
+			}) as unknown as ExtractOptions<typeof commandDef> extends never
+				? (name: never) => never
+				: <K extends ExtractOptions<typeof commandDef>>(
+						name: K,
+					) => string | undefined,
+		} as Context<typeof commandDef>;
 
 		handler(context);
 	}
@@ -577,13 +680,11 @@ export class Cli {
 	 * }
 	 * ```
 	 */
-	private findCommand(
-		commandName: string,
-	): [string, (c: Context<string>) => void] | null {
-		for (const [commandDef, handler] of this.commands) {
-			const actualCommandName = this.extractCommandName(commandDef);
+	private findCommand(commandName: string) {
+		for (const [def, entry] of this.commands) {
+			const actualCommandName = this.extractCommandName(def);
 			if (actualCommandName === commandName) {
-				return [commandDef, handler];
+				return entry;
 			}
 		}
 		return null;
@@ -605,6 +706,72 @@ export class Cli {
 	}
 
 	/**
+	 * Parses options from command line arguments based on the command definition.
+	 * @param commandDef - Command definition string
+	 * @param args - Raw command line arguments
+	 * @returns An object with two properties:
+	 *   - options: Parsed options object with long option names as keys and string or undefined values
+	 *   - consumedIndexes: Set of argument indexes that were consumed as option values
+	 * @example
+	 * this.parseOptionsWithConsumed("commit --message=<string>", ["--message", "hi"]);
+	 * // returns { options: { message: "hi" }, consumedIndexes: Set([1]) }
+	 */
+	private parseOptionsWithConsumed(
+		commandDef: string,
+		args: string[],
+	): {
+		options: Record<string, string | undefined>;
+		consumedIndexes: Set<number>;
+	} {
+		const optionDefs = this.extractOptionDefs(commandDef);
+		const result: Record<string, string | undefined> = {};
+		const consumedIndexes = new Set<number>();
+		for (const { long } of optionDefs) {
+			result[long] = undefined;
+		}
+		let i = 0;
+		while (i < args.length) {
+			const arg = args[i];
+			if (typeof arg !== "string") {
+				i++;
+				continue;
+			}
+			if (arg.startsWith("--")) {
+				const eqIdx = arg.indexOf("=");
+				if (eqIdx !== -1) {
+					const name = arg.slice(2, eqIdx);
+					const value = arg.slice(eqIdx + 1);
+					const def = optionDefs.find((o) => o.long === name);
+					if (def) {
+						result[def.long] = value;
+						consumedIndexes.add(i);
+					}
+				} else {
+					const name = arg.slice(2);
+					const nextArg = args[i + 1];
+					const def = optionDefs.find((o) => o.long === name);
+					if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
+						result[def.long] = nextArg;
+						consumedIndexes.add(i + 1);
+						i++;
+					}
+				}
+			} else if (arg.startsWith("-") && arg.length === 2) {
+				const name = arg.slice(1);
+				const nextArg = args[i + 1];
+				const def = optionDefs.find((o) => o.short === name);
+				if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
+					result[def.long] = nextArg;
+					consumedIndexes.add(i + 1);
+					i++;
+				}
+			}
+			i++;
+		}
+		return { options: result, consumedIndexes };
+	}
+
+	/**
 	 * Parses command line arguments based on the command definition.
 	 * @param commandDef - Command definition string
 	 * @param args - Raw command line arguments
@@ -622,17 +789,61 @@ export class Cli {
 		commandDef: string,
 		args: string[],
 	): Record<string, string | string[]> {
-		// Extract argument names from command definition (e.g., "hello [name]" -> ["name"])
-		const argNames = this.extractArgNames(commandDef);
-		const result: Record<string, string | string[]> = { _: [] };
-
-		args.forEach((arg, index) => {
-			if (argNames[index]) {
-				result[argNames[index]] = arg;
-			} else {
-				(result._ as string[]).push(arg);
-			}
+		const matches = commandDef.match(/\[([^\]]+)\]/g) ?? [];
+		const argNames = matches.map((match) => {
+			const argName = match.slice(1, -1);
+			if (argName.startsWith("...")) return argName.slice(3);
+			return argName.endsWith("?") ? argName.slice(0, -1) : argName;
 		});
+
+		const variadicIndex = matches.findIndex((match) =>
+			match.startsWith("[..."),
+		);
+		if (matches.filter((match) => match.startsWith("[...")).length > 1) {
+			throw new Error("Only one variadic argument is allowed");
+		}
+		if (variadicIndex !== -1 && variadicIndex !== matches.length - 1) {
+			throw new Error("Variadic argument must be last");
+		}
+
+		const result: Record<string, string | string[]> = {};
+
+		const { consumedIndexes } = this.parseOptionsWithConsumed(commandDef, args);
+
+		if (variadicIndex === -1) {
+			argNames.forEach((name, i) => {
+				if (
+					args[i] !== undefined &&
+					!args[i].startsWith("-") &&
+					!consumedIndexes.has(i)
+				) {
+					result[name] = args[i];
+				}
+			});
+		} else {
+			argNames.slice(0, variadicIndex).forEach((name, i) => {
+				if (
+					args[i] !== undefined &&
+					!args[i].startsWith("-") &&
+					!consumedIndexes.has(i)
+				) {
+					result[name] = args[i];
+				}
+			});
+			const variadicName = argNames[variadicIndex];
+			if (variadicName !== undefined) {
+				const variadicArgs = args.slice(variadicIndex).filter((_, idx) => {
+					const absIdx = idx + variadicIndex;
+					const val = args[absIdx];
+					return (
+						val !== undefined &&
+						!val.startsWith("-") &&
+						!consumedIndexes.has(absIdx)
+					);
+				});
+				result[variadicName] = variadicArgs;
+			}
+		}
 
 		return result;
 	}
@@ -670,25 +881,31 @@ export class Cli {
 	 * ```
 	 */
 	private extractArgNames(commandDef: string): string[] {
-		const matches = commandDef.match(/\[([^\]]+)\]/g);
-		const names = matches
-			? matches.map((match) => {
-					const argName = match.slice(1, -1);
-					const cleanName = argName.endsWith("?")
-						? argName.slice(0, -1)
-						: argName;
-					Cli.checkReserved(cleanName);
-					return cleanName;
-				})
-			: [];
-		const seen = new Set<string>();
-		for (const name of names) {
-			if (seen.has(name)) {
-				throw new Error(`Duplicate argument name: "${name}"`);
+		const matches = commandDef.match(/\[([^\]]+)\]/g) ?? [];
+		let variadicFound = false;
+		let variadicCount = 0;
+		for (const match of matches) {
+			const argName = match.slice(1, -1);
+			if (argName.startsWith("...")) {
+				variadicCount++;
 			}
-			seen.add(name);
 		}
-		return names;
+		if (variadicCount > 1) {
+			throw new Error("Only one variadic argument is allowed");
+		}
+		return matches.map((match, i) => {
+			let argName = match.slice(1, -1);
+			if (argName.startsWith("...")) {
+				if (variadicFound)
+					throw new Error("Only one variadic argument is allowed");
+				if (i !== matches.length - 1)
+					throw new Error("Variadic argument must be last");
+				argName = argName.slice(3);
+				variadicFound = true;
+			}
+			Cli.checkReserved(argName);
+			return argName;
+		});
 	}
 
 	/**
@@ -712,9 +929,10 @@ export class Cli {
 			? matches.map((match) => {
 					const argWithBrackets = match.slice(1, -1);
 					const optional = argWithBrackets.endsWith("?");
-					const name = optional
-						? argWithBrackets.slice(0, -1)
-						: argWithBrackets;
+					let name = optional ? argWithBrackets.slice(0, -1) : argWithBrackets;
+					if (name.startsWith("...")) {
+						name = name.slice(3);
+					}
 					return { name, optional };
 				})
 			: [];
@@ -733,11 +951,16 @@ export class Cli {
 		const argMetadata = this.extractArgMetadata(commandDef);
 
 		for (const { name, optional } of argMetadata) {
-			if (
-				!optional &&
-				(parsedArgs[name] === undefined || parsedArgs[name] === "")
-			) {
-				throw new Error(`Required argument '${name}' is missing`);
+			const value = parsedArgs[name];
+			const isVariadic = commandDef.includes(`[...${name}]`);
+			if (!optional) {
+				if (
+					value === undefined ||
+					value === "" ||
+					(!isVariadic && Array.isArray(value) && value.length === 0)
+				) {
+					throw new Error(`Required argument '${name}' is missing`);
+				}
 			}
 		}
 	}
@@ -856,46 +1079,7 @@ export class Cli {
 		commandDef: string,
 		args: string[],
 	): Record<string, string | undefined> {
-		const optionDefs = this.extractOptionDefs(commandDef);
-		const result: Record<string, string | undefined> = {};
-		for (const { long } of optionDefs) {
-			result[long] = undefined;
-		}
-		let i = 0;
-		while (i < args.length) {
-			const arg = args[i];
-			if (typeof arg !== "string") {
-				i++;
-				continue;
-			}
-			if (arg.startsWith("--")) {
-				const eqIdx = arg.indexOf("=");
-				if (eqIdx !== -1) {
-					const name = arg.slice(2, eqIdx);
-					const value = arg.slice(eqIdx + 1);
-					const def = optionDefs.find((o) => o.long === name);
-					if (def) result[def.long] = value;
-				} else {
-					const name = arg.slice(2);
-					const nextArg = args[i + 1];
-					const def = optionDefs.find((o) => o.long === name);
-					if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
-						result[def.long] = nextArg;
-						i++;
-					}
-				}
-			} else if (arg.startsWith("-") && arg.length === 2) {
-				const name = arg.slice(1);
-				const nextArg = args[i + 1];
-				const def = optionDefs.find((o) => o.short === name);
-				if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
-					result[def.long] = nextArg;
-					i++;
-				}
-			}
-			i++;
-		}
-		return result;
+		return this.parseOptionsWithConsumed(commandDef, args).options;
 	}
 
 	/**

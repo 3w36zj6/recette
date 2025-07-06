@@ -183,4 +183,36 @@ describe("Cli", () => {
 			c.option("option");
 		});
 	});
+
+	it("should not include variadic argument in arg() candidates", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("cat [file] [...files]", (c) => {
+			expectTypeOf(c.arg).parameter(0).toEqualTypeOf<"file">();
+			const file = c.arg("file");
+			expectTypeOf(file).toEqualTypeOf<string>();
+
+			expectTypeOf(c.args).parameter(0).toEqualTypeOf<"files">();
+			const files = c.args("files");
+			expectTypeOf(files).toEqualTypeOf<string[]>();
+		});
+	});
+
+	it("should infer types correctly for variadic argument with flags and options", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.command("cat [...files] --flag --opt=<string>", (c) => {
+			expectTypeOf(c.args).parameter(0).toEqualTypeOf<"files">();
+			const files = c.args("files");
+			expectTypeOf(files).toEqualTypeOf<string[]>();
+
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<"flag">();
+			const flag = c.flag("flag");
+			expectTypeOf(flag).toEqualTypeOf<boolean>();
+
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<"opt">();
+			const opt = c.option("opt");
+			expectTypeOf(opt).toEqualTypeOf<string | undefined>();
+		});
+	});
 });

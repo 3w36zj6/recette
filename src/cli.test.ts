@@ -52,13 +52,11 @@ describe("Cli", () => {
 		let receivedFirst: string | undefined;
 		let receivedSecond: string | undefined;
 		let receivedThird: string | undefined;
-		let receivedArgs: Record<string, string | string[]> | undefined;
 
 		cli.command("greet [first] [second] [third]", (c) => {
 			receivedFirst = c.arg("first");
 			receivedSecond = c.arg("second");
 			receivedThird = c.arg("third");
-			receivedArgs = c.args;
 		});
 
 		cli.run(["greet", "Alice", "Bob", "Charlie"]);
@@ -66,9 +64,6 @@ describe("Cli", () => {
 		expect(receivedFirst).toBe("Alice");
 		expect(receivedSecond).toBe("Bob");
 		expect(receivedThird).toBe("Charlie");
-		expect(receivedArgs?.first).toEqual("Alice");
-		expect(receivedArgs?.second).toEqual("Bob");
-		expect(receivedArgs?.third).toEqual("Charlie");
 	});
 
 	it("should handle optional arguments", () => {
@@ -88,6 +83,223 @@ describe("Cli", () => {
 		cli.run(["list"]);
 		expect(receivedDir).toBeUndefined();
 		expect(executionCount).toBe(2);
+	});
+
+	it("should handle variadic arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedFiles: string[] | undefined;
+
+		cli.command("remove [...files]", (c) => {
+			receivedFiles = c.args("files");
+		});
+
+		cli.run(["remove", "a.txt", "b.txt", "c.txt"]);
+		expect(receivedFiles).toEqual(["a.txt", "b.txt", "c.txt"]);
+
+		cli.run(["remove"]);
+		expect(receivedFiles).toEqual([]);
+	});
+
+	it("should not allow multiple variadic arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [...files] [...others]", (c) => {});
+		}).toThrowError(/Only one variadic argument is allowed/);
+	});
+
+	it("should not allow variadic argument except at last position", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [...files] [other]", (c) => {});
+		}).toThrowError(/Variadic argument must be last/);
+	});
+
+	it("should handle required and variadic arguments together", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedDir: string | undefined;
+		let receivedFiles: string[] | undefined;
+
+		cli.command("upload [dir] [...files]", (c) => {
+			receivedDir = c.arg("dir");
+			receivedFiles = c.args("files");
+		});
+
+		cli.run(["upload", "src", "a.txt", "b.txt"]);
+		expect(receivedDir).toBe("src");
+		expect(receivedFiles).toEqual(["a.txt", "b.txt"]);
+
+		cli.run(["upload", "src"]);
+		expect(receivedDir).toBe("src");
+		expect(receivedFiles).toEqual([]);
+	});
+
+	it("should handle required, optional, and variadic arguments together", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedA: string | undefined;
+		let receivedB: string | undefined;
+		let receivedRest: string[] | undefined;
+
+		cli.command("foo [a] [b?] [...rest]", (c) => {
+			receivedA = c.arg("a");
+			receivedB = c.arg("b");
+			receivedRest = c.args("rest");
+		});
+
+		cli.run(["foo", "A", "B", "X", "Y"]);
+		expect(receivedA).toBe("A");
+		expect(receivedB).toBe("B");
+		expect(receivedRest).toEqual(["X", "Y"]);
+
+		cli.run(["foo", "A"]);
+		expect(receivedA).toBe("A");
+		expect(receivedB).toBeUndefined();
+		expect(receivedRest).toEqual([]);
+	});
+
+	it("should allow empty variadic arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let received: string[] | undefined;
+
+		cli.command("bar [...items]", (c) => {
+			received = c.args("items");
+		});
+
+		cli.run(["bar"]);
+		expect(received).toEqual([]);
+	});
+
+	it("should handle single value for variadic argument", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let received: string[] | undefined;
+
+		cli.command("baz [...values]", (c) => {
+			received = c.args("values");
+		});
+
+		cli.run(["baz", "one"]);
+		expect(received).toEqual(["one"]);
+	});
+
+	it("should assign correct values when required arg precedes variadic", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let receivedFirst: string | undefined;
+		let receivedRest: string[] | undefined;
+
+		cli.command("qux [first] [...rest]", (c) => {
+			receivedFirst = c.arg("first");
+			receivedRest = c.args("rest");
+		});
+
+		cli.run(["qux", "A", "B", "C"]);
+		expect(receivedFirst).toBe("A");
+		expect(receivedRest).toEqual(["B", "C"]);
+	});
+
+	it("should handle variadic arguments with spaces and special characters", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let received: string[] | undefined;
+
+		cli.command("files [...paths]", (c) => {
+			received = c.args("paths");
+		});
+
+		cli.run(["files", "a b.txt", "c@d.txt", "e#f.txt"]);
+		expect(received).toEqual(["a b.txt", "c@d.txt", "e#f.txt"]);
+	});
+
+	it("should throw if multiple variadic arguments are defined", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [...a] [...b]", () => {});
+		}).toThrow(/Only one variadic argument is allowed/);
+	});
+
+	it("should throw if variadic argument is not last", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [...a] [b]", () => {});
+		}).toThrow(/Variadic argument must be last/);
+	});
+
+	it("should parse flags and options with arguments", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let called = false;
+
+		cli.command("commit [file] --amend|-a --message|-m=<string>", (c) => {
+			expect(c.arg("file")).toBe("index.ts");
+			expect(c.flag("amend")).toBe(true);
+			expect(c.option("message")).toBe("fix bug");
+			called = true;
+		});
+
+		cli.run(["commit", "index.ts", "--amend", "--message", "fix bug"]);
+		expect(called).toBe(true);
+	});
+
+	it("should throw on duplicate argument names", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [bar] [bar]", () => {});
+		}).toThrowError(/Duplicate argument name/);
+	});
+
+	it("should throw on reserved word as argument", () => {
+		const cli = new Cli({ name: "test-cli" });
+		expect(() => {
+			cli.command("foo [constructor]", () => {});
+		}).toThrowError(/Reserved word/);
+	});
+
+	it("should return undefined for unknown flag or option", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let called = false;
+		cli.command("foo --bar|-b --baz=<string>", (c) => {
+			expect(c.flag("bar")).toBe(false);
+			expect(c.option("baz")).toBeUndefined();
+			// @ts-expect-error
+			c.flag("unknown");
+			// @ts-expect-error
+			c.option("unknown");
+			called = true;
+		});
+		cli.run(["foo"]);
+		expect(called).toBe(true);
+	});
+
+	it("should show error if required argument is missing", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let errorOutput = "";
+		const originalError = console.error;
+		const originalLog = console.log;
+		console.error = (msg: string) => {
+			errorOutput = msg;
+		};
+		console.log = () => {};
+
+		cli.command("hello [name]", () => {});
+		cli.run(["hello"]);
+		expect(errorOutput).toMatch(/Required argument/);
+
+		console.error = originalError;
+		console.log = originalLog;
+	});
+
+	it("should not include flags or options in variadic argument", () => {
+		const cli = new Cli({ name: "test-cli" });
+		let capturedFiles: string[] | undefined;
+		let capturedFlag: boolean | undefined;
+		let capturedOpt: string | undefined;
+
+		cli.command("cat [...files] --flag --opt=<string>", (c) => {
+			capturedFiles = c.args("files");
+			capturedFlag = c.flag("flag");
+			capturedOpt = c.option("opt");
+		});
+		cli.run(["cat", "a.txt", "b.txt", "--flag", "--opt", "value", "c.txt"]);
+
+		expect(capturedFiles).toEqual(["a.txt", "b.txt", "c.txt"]);
+		expect(capturedFlag).toBe(true);
+		expect(capturedOpt).toBe("value");
 	});
 
 	it("should validate required arguments", () => {
