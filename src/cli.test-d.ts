@@ -79,7 +79,7 @@ describe("Cli", () => {
 
 	it("should not allow short-only flag definitions", () => {
 		const cli = new Cli({ name: "test-cli" });
-
+		// @ts-expect-error
 		cli.command("foo -f", (c) => {
 			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
@@ -89,13 +89,13 @@ describe("Cli", () => {
 
 	it("should not allow wrong order or double long flag definitions", () => {
 		const cli = new Cli({ name: "test-cli" });
-
+		// @ts-expect-error
 		cli.command("foo -f|--flag", (c) => {
 			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
 			c.flag("flag");
 		});
-
+		// @ts-expect-error
 		cli.command("foo --flag|--f", (c) => {
 			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
@@ -105,7 +105,7 @@ describe("Cli", () => {
 
 	it("should not allow long flag with only one character", () => {
 		const cli = new Cli({ name: "test-cli" });
-
+		// @ts-expect-error
 		cli.command("build --v", (c) => {
 			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
@@ -150,7 +150,7 @@ describe("Cli", () => {
 
 	it("should not allow short-only option definitions", () => {
 		const cli = new Cli({ name: "test-cli" });
-
+		// @ts-expect-error
 		cli.command("foo -m=<string>", (c) => {
 			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
@@ -160,7 +160,7 @@ describe("Cli", () => {
 
 	it("should not allow long option with only one character", () => {
 		const cli = new Cli({ name: "test-cli" });
-
+		// @ts-expect-error
 		cli.command("foo --m=<string>", (c) => {
 			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
@@ -170,13 +170,13 @@ describe("Cli", () => {
 
 	it("should not allow double long option or wrong order", () => {
 		const cli = new Cli({ name: "test-cli" });
-
+		// @ts-expect-error
 		cli.command("foo --option|--o=<string>", (c) => {
 			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
 			c.option("option");
 		});
-
+		// @ts-expect-error
 		cli.command("foo -m|--option=<string>", (c) => {
 			expectTypeOf(c.option).parameter(0).toEqualTypeOf<never>();
 			// @ts-expect-error
@@ -263,5 +263,24 @@ describe("Cli", () => {
 		cli.command("branch list --remote", (c) => {
 			expectTypeOf(c.flag("remote")).toEqualTypeOf<boolean>();
 		});
+	});
+
+	it("should not allow invalid command definitions", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		// @ts-expect-error
+		cli.command("foo [...a] [...b]", () => {});
+
+		// @ts-expect-error
+		cli.command("foo [...a] [b]", () => {});
+
+		// @ts-expect-error
+		cli.command("foo [bar] [bar]", () => {});
+
+		// @ts-expect-error
+		cli.command("foo -f", () => {});
+
+		// @ts-expect-error
+		cli.command("foo -o=<string>", () => {});
 	});
 });

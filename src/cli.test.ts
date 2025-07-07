@@ -103,6 +103,7 @@ describe("Cli", () => {
 	it("should not allow multiple variadic arguments", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo [...files] [...others]", (c) => {});
 		}).toThrowError(/Only one variadic argument is allowed/);
 	});
@@ -110,6 +111,7 @@ describe("Cli", () => {
 	it("should not allow variadic argument except at last position", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo [...files] [other]", (c) => {});
 		}).toThrowError(/Variadic argument must be last/);
 	});
@@ -210,6 +212,7 @@ describe("Cli", () => {
 	it("should throw if multiple variadic arguments are defined", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo [...a] [...b]", () => {});
 		}).toThrow(/Only one variadic argument is allowed/);
 	});
@@ -217,6 +220,7 @@ describe("Cli", () => {
 	it("should throw if variadic argument is not last", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo [...a] [b]", () => {});
 		}).toThrow(/Variadic argument must be last/);
 	});
@@ -239,6 +243,7 @@ describe("Cli", () => {
 	it("should throw on duplicate argument names", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo [bar] [bar]", () => {});
 		}).toThrowError(/Duplicate argument name/);
 	});
@@ -346,6 +351,7 @@ describe("Cli", () => {
 	it("should not allow duplicate argument names", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo [bar] [bar]", (c) => {
 				c.arg("bar");
 			});
@@ -456,6 +462,7 @@ describe("Cli", () => {
 	it("should throw on short-only flags", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo -f", (c) => {
 				// @ts-expect-error
 				c.flag("f");
@@ -467,6 +474,7 @@ describe("Cli", () => {
 	it("should throw on invalid flag patterns", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo -f|--flag", (c) => {
 				// @ts-expect-error
 				c.flag("flag");
@@ -475,6 +483,7 @@ describe("Cli", () => {
 		}).toThrowError(/Invalid flag definition/);
 
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo --flag|--f", (c) => {
 				// @ts-expect-error
 				c.flag("flag");
@@ -486,6 +495,7 @@ describe("Cli", () => {
 	it("should throw on long flag with only one character", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("build --v", (c) => {
 				// @ts-expect-error
 				c.flag("v");
@@ -643,6 +653,7 @@ describe("Cli", () => {
 	it("should throw on short-only option", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo -m=<string>", (c) => {
 				// @ts-expect-error
 				c.option("m");
@@ -654,6 +665,7 @@ describe("Cli", () => {
 	it("should throw on long option with only one character", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo --m=<string>", (c) => {
 				// @ts-expect-error
 				c.option("m");
@@ -665,6 +677,7 @@ describe("Cli", () => {
 	it("should throw on double long option", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo --option|--o=<string>", (c) => {
 				// @ts-expect-error
 				c.option("option");
@@ -676,6 +689,7 @@ describe("Cli", () => {
 	it("should throw on wrong order of short/long option", () => {
 		const cli = new Cli({ name: "test-cli" });
 		expect(() => {
+			// @ts-expect-error
 			cli.command("foo -m|--option=<string>", (c) => {
 				// @ts-expect-error
 				c.option("option");

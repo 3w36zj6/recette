@@ -142,8 +142,8 @@ type ExtractOptionalArgs<T extends string> = BracketSegmentsToOptionalArgs<
  * IsLong<"long"> // true
  * IsLong<"l"> // false
  */
-type IsLong<L extends string> = L extends `${infer A}${infer B}`
-	? B extends ""
+type IsLong<L extends string> = L extends `${infer _A}${infer _B}`
+	? _B extends ""
 		? false
 		: true
 	: false;
@@ -165,6 +165,9 @@ type IsShort<S extends string> = S extends `${infer A}`
 			: false
 	: false;
 
+/**
+ * Converts a tuple to a union type, excluding string if present.
+ */
 type StrictTupleToUnion<T extends readonly unknown[]> =
 	T[number] extends infer U ? (string extends U ? never : U) : never;
 
@@ -182,6 +185,9 @@ type ExtractFlagSegments<T extends string> = FilterValidFlagTokens<
 		: never
 	: never;
 
+/**
+ * Extracts long flag names from a tuple of flag segments.
+ */
 type ExtractLongNamesFromTuple<T extends readonly string[]> = T extends [
 	infer Head,
 	...infer Tail,
@@ -231,11 +237,11 @@ type FilterValidFlagTokens<Tokens extends readonly string[]> = Tokens extends [
 	...infer Tail,
 ]
 	? Head extends string
-		? Head extends `--${string}`
-			? IsValidFlagSegment<Head> extends true
+		? Head extends `${string}=<${string}>`
+			? FilterValidFlagTokens<Tail extends string[] ? Tail : []>
+			: IsValidFlagSegment<Head> extends true
 				? [Head, ...FilterValidFlagTokens<Tail extends string[] ? Tail : []>]
 				: FilterValidFlagTokens<Tail extends string[] ? Tail : []>
-			: FilterValidFlagTokens<Tail extends string[] ? Tail : []>
 		: []
 	: [];
 
@@ -247,17 +253,16 @@ type FilterValidFlagTokens<Tokens extends readonly string[]> = Tokens extends [
  * IsValidFlagSegment<"-f|--flag"> // false
  * IsValidFlagSegment<"--l"> // false
  */
-type IsValidFlagSegment<S extends string> = S extends `${string}=<${string}>`
-	? false
-	: S extends `--${string}|--${string}`
-		? false
-		: S extends `-${string}|--${string}`
-			? false
-			: S extends `--${infer Long}|-${infer Short}`
-				? IsLong<Long> & IsShort<Short>
-				: S extends `--${infer Long}`
-					? IsLong<Long>
-					: true;
+type IsValidFlagSegment<S extends string> =
+	S extends `--${infer Long}|-${infer Short}`
+		? IsLong<Long> extends true
+			? IsShort<Short> extends true
+				? true
+				: false
+			: false
+		: S extends `--${infer Long}`
+			? IsLong<Long>
+			: false;
 
 /**
  * Extracts the long name from a flag or option segment.
@@ -274,13 +279,97 @@ type ExtractLongName<S extends string> = S extends `--${infer Long}|-${string}`
 			? Long
 			: never;
 
-type AllFlagsValid<T extends string[]> = T extends [infer Head, ...infer Tail]
+/**
+ * Returns true if all flag segments in the list are valid.
+ */
+type AllFlagsValid<T extends readonly string[]> = T extends [
+	infer Head,
+	...infer Tail,
+]
 	? Head extends string
 		? IsValidFlagSegment<Head> extends true
-			? AllFlagsValid<Tail extends string[] ? Tail : []>
+			? AllFlagsValid<Tail extends readonly string[] ? Tail : []>
 			: false
 		: false
 	: true;
+
+/**
+ * Returns true if the command definition contains a short-only flag or a short|long pattern.
+ */
+type ContainsShortOnlyFlag<T extends string> =
+	T extends `${infer A} -${infer S} ${infer Rest}`
+		? S extends `-${string}`
+			? ContainsShortOnlyFlag<Rest>
+			: S extends "" | `${string}|${string}` | `${string}=<${string}>`
+				? ContainsShortOnlyFlag<Rest>
+				: S extends `${infer B}|--${infer C}`
+					? true
+					: S extends `${infer D}`
+						? S extends `${string}=<${string}>` | `${string}|${string}`
+							? ContainsShortOnlyFlag<Rest>
+							: true
+						: ContainsShortOnlyFlag<Rest>
+		: T extends `${infer E} -${infer S}`
+			? S extends `-${string}`
+				? false
+				: S extends "" | `${string}|${string}` | `${string}=<${string}>`
+					? false
+					: S extends `${infer F}|--${infer G}`
+						? true
+						: S extends `${infer H}`
+							? S extends `${string}=<${string}>` | `${string}|${string}`
+								? false
+								: true
+							: false
+			: false;
+
+/**
+ * Filters out option tokens (with =<string>) from a list of tokens, leaving only flag tokens.
+ */
+type FlagTokensOnly<Tokens extends readonly string[]> = Tokens extends [
+	infer Head,
+	...infer Tail,
+]
+	? Head extends string
+		? Head extends `${string}=<${string}>`
+			? FlagTokensOnly<Tail extends string[] ? Tail : []>
+			: [Head, ...FlagTokensOnly<Tail extends string[] ? Tail : []>]
+		: []
+	: [];
+
+/**
+ * Returns true if any flag token exists in the list (excluding options).
+ */
+type HasAnyFlagToken<Tokens extends readonly string[]> =
+	FlagTokensOnly<Tokens> extends [infer Head, ...infer Tail]
+		? Head extends string
+			? Head extends
+					| `--${string}`
+					| `--${string}|-${string}`
+					| `-${string}|--${string}`
+					| `-${string}`
+				? true
+				: HasAnyFlagToken<Tail extends string[] ? Tail : []>
+			: false
+		: false;
+
+/**
+ * Returns true if any invalid flag token exists in the list (excluding options).
+ */
+type HasInvalidFlagToken<Tokens extends readonly string[]> =
+	FlagTokensOnly<Tokens> extends [infer Head, ...infer Tail]
+		? Head extends string
+			? IsValidFlagSegment<Head> extends false
+				? Head extends
+						| `--${string}`
+						| `--${string}|-${string}`
+						| `-${string}|--${string}`
+						| `-${string}`
+					? true
+					: HasInvalidFlagToken<Tail extends string[] ? Tail : []>
+				: HasInvalidFlagToken<Tail extends string[] ? Tail : []>
+			: false
+		: false;
 
 /**
  * Returns true if the command definition contains only valid flag patterns.
@@ -289,9 +378,15 @@ type AllFlagsValid<T extends string[]> = T extends [infer Head, ...infer Tail]
  * IsValidFlagPattern<"-f|--foo"> // false
  * IsValidFlagPattern<"--foo|--f"> // false
  */
-type IsValidFlagPattern<T extends string> = AllFlagsValid<
-	FilterValidFlagTokens<SplitTokens<T>>
->;
+type IsValidFlagPattern<T extends string> = HasAnyFlagToken<
+	SplitTokens<T>
+> extends true
+	? HasInvalidFlagToken<SplitTokens<T>> extends true
+		? false
+		: AllFlagsValid<FilterValidFlagTokens<SplitTokens<T>>> extends true
+			? true
+			: false
+	: true;
 
 /**
  * Extracts the union of all valid long flag names from a command definition string.
@@ -323,7 +418,11 @@ type IsValidOptionSegment<S extends string> =
 			: S extends `--${infer Long}=<${string}>`
 				? IsLong<Long>
 				: S extends `--${infer Long}|-${infer Short}=<${string}>`
-					? IsLong<Long> & IsShort<Short>
+					? IsLong<Long> extends true
+						? IsShort<Short> extends true
+							? true
+							: false
+						: false
 					: false;
 
 /**
@@ -416,6 +515,96 @@ type ExtractVariadicArgName<T extends string> =
 	T extends `${string}[...${infer Name}]${string}` ? Name : never;
 
 /**
+ * Determines if a command definition is valid at the type level.
+ */
+type IsValidCommandDef<T extends string> = IsValidFlagPattern<T> extends true
+	? AllOptionsValid<T> extends true
+		? IsValidBracketPattern<T> extends true
+			? true
+			: false
+		: false
+	: false;
+
+/**
+ * Validates bracket patterns at the type level (e.g., only one variadic argument, must be last, no duplicates).
+ */
+type IsValidBracketPattern<T extends string> =
+	ExtractBracketSegments<T> extends infer Segs
+		? Segs extends readonly string[]
+			? CountVariadic<Segs> extends 0 | 1
+				? CountVariadic<Segs> extends 1
+					? VariadicIsLast<Segs> extends true
+						? NoDuplicateArgs<Segs> extends true
+							? true
+							: false
+						: false
+					: NoDuplicateArgs<Segs> extends true
+						? true
+						: false
+				: false
+			: false
+		: false;
+
+/**
+ * Counts the number of variadic arguments in a tuple of bracket segments.
+ */
+type CountVariadic<T extends readonly string[]> = T extends [
+	infer H,
+	...infer R,
+]
+	? H extends `[...${string}]`
+		? 1 extends CountVariadic<R extends string[] ? R : []>
+			? 2
+			: 1
+		: CountVariadic<R extends string[] ? R : []>
+	: 0;
+
+/**
+ * Returns true if the variadic argument is the last in the tuple.
+ */
+type VariadicIsLast<T extends readonly string[]> = T extends [
+	...infer Rest,
+	infer Last,
+]
+	? Last extends `[...${string}]`
+		? true
+		: T extends [infer H, ...infer R]
+			? H extends `[...${string}]`
+				? false
+				: VariadicIsLast<R extends string[] ? R : []>
+			: false
+	: false;
+
+/**
+ * Checks for duplicate argument names in a tuple of bracket segments.
+ */
+type NoDuplicateArgs<
+	T extends readonly string[],
+	Seen extends string[] = [],
+> = T extends [infer H, ...infer R]
+	? H extends `[${infer Name}]`
+		? Name extends `...${infer V}`
+			? V extends Seen[number]
+				? false
+				: NoDuplicateArgs<R extends string[] ? R : [], [...Seen, V]>
+			: Name extends `${infer N}?`
+				? N extends Seen[number]
+					? false
+					: NoDuplicateArgs<R extends string[] ? R : [], [...Seen, N]>
+				: Name extends Seen[number]
+					? false
+					: NoDuplicateArgs<R extends string[] ? R : [], [...Seen, Name]>
+		: NoDuplicateArgs<R extends string[] ? R : [], Seen>
+	: true;
+
+/**
+ * Command definition type.
+ */
+type ValidCommandDef<T extends string> = IsValidCommandDef<T> extends true
+	? T
+	: never;
+
+/**
  * Context object passed to command handlers containing parsed arguments and flags.
  * @template T - The command definition string used for type-safe argument/flag access
  */
@@ -470,7 +659,10 @@ export class Cli {
 	 * @param handler - Function to execute when command is called
 	 * @returns The CLI instance for method chaining
 	 */
-	command<T extends string>(name: T, handler: (c: Context<T>) => void) {
+	command<T extends string>(
+		name: ValidCommandDef<T>,
+		handler: (c: Context<T>) => void,
+	) {
 		const flagDefs = this.extractFlagDefs(name);
 		const optionDefs = this.extractOptionDefs(name);
 
