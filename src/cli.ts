@@ -499,6 +499,32 @@ export class Cli {
 	}
 
 	/**
+	 * Registers a sub CLI under a command prefix, enabling command grouping and nesting.
+	 * All commands from the sub CLI will be registered with the given prefix as their namespace.
+	 * This method can be used recursively to support multi-level subcommand trees.
+	 * @param prefix - The command prefix (e.g., "sub" or "branch")
+	 * @param subCli - The sub CLI instance containing commands to mount under the prefix
+	 * @returns The CLI instance for method chaining
+	 * @example
+	 * ```typescript
+	 * const branchCli = new Cli();
+	 * branchCli.command("list", c => { ... });
+	 * branchCli.command("delete [name]", c => { ... });
+	 *
+	 * const cli = new Cli({ name: "mycli" });
+	 * cli.mount("branch", branchCli);
+	 * cli.run(["branch", "list"]);
+	 * ```
+	 */
+	mount(prefix: string, subCli: Cli) {
+		for (const [def, entry] of subCli.commands) {
+			const newDef = `${prefix} ${def}`;
+			this.commands.set(newDef, { ...entry, def: newDef });
+		}
+		return this;
+	}
+
+	/**
 	 * Executes the CLI with the provided arguments.
 	 * @param args - Command line arguments (defaults to `process.argv` based on execution context)
 	 * @example
@@ -516,21 +542,43 @@ export class Cli {
 	 */
 	run(args?: string[]) {
 		const actualArgs = args ?? this.getProcessArgs();
-		const [commandName, ...restArgs] = actualArgs;
-
-		if (!commandName) {
+		// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
+		let found: { def: string; handler: (c: Context<any>) => void } | null =
+			null;
+		let matchedLen = 0;
+		for (const [def, entry] of this.commands) {
+			const defParts = def.split(" ");
+			const cmdNameParts = [];
+			for (const part of defParts) {
+				if (part.startsWith("[") || part.startsWith("--")) break;
+				cmdNameParts.push(part);
+			}
+			const argParts = actualArgs.slice(0, cmdNameParts.length);
+			if (cmdNameParts.join(" ") === argParts.join(" ")) {
+				if (cmdNameParts.length > matchedLen) {
+					found = entry;
+					matchedLen = cmdNameParts.length;
+				}
+			}
+		}
+		if (!found) {
+			console.error(
+				actualArgs.length > 0
+					? `Unknown command: ${actualArgs[0]}`
+					: `Usage: ${this.name} <command> [arguments...]`,
+			);
 			this.showUsage();
 			return;
 		}
 
-		const commandEntry = this.findCommand(commandName);
-		if (!commandEntry) {
-			console.error(`Unknown command: ${commandName}`);
-			this.showUsage();
-			return;
+		const { def: commandDef, handler } = found;
+		const defParts = commandDef.split(" ");
+		const cmdNameParts = [];
+		for (const part of defParts) {
+			if (part.startsWith("[") || part.startsWith("--")) break;
+			cmdNameParts.push(part);
 		}
-
-		const { def: commandDef, handler } = commandEntry;
+		const restArgs = actualArgs.slice(cmdNameParts.length);
 		const parsedArgs = this.parseCommandArgs(commandDef, restArgs);
 		const parsedFlags = this.parseFlags(commandDef, restArgs);
 		const parsedOptions = this.parseOptions(commandDef, restArgs);
@@ -681,11 +729,12 @@ export class Cli {
 	 * ```
 	 */
 	private findCommand(commandName: string) {
+		const tryNames = [commandName];
+		if (Array.isArray(commandName)) {
+			tryNames.push(commandName.join(" "));
+		}
 		for (const [def, entry] of this.commands) {
-			const actualCommandName = this.extractCommandName(def);
-			if (actualCommandName === commandName) {
-				return entry;
-			}
+			if (def === commandName) return entry;
 		}
 		return null;
 	}

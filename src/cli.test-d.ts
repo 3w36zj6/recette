@@ -215,4 +215,53 @@ describe("Cli", () => {
 			expectTypeOf(opt).toEqualTypeOf<string | undefined>();
 		});
 	});
+
+	it("should infer types correctly for mount() subcommand grouping and nesting", () => {
+		const featureCli = new Cli({ name: "feature-cli" });
+		featureCli.command("start [name]", (c) => {
+			expectTypeOf(c.arg("name")).toEqualTypeOf<string>();
+		});
+
+		const branchCli = new Cli({ name: "branch-cli" });
+		branchCli.command("list --remote", (c) => {
+			expectTypeOf(c.flag("remote")).toEqualTypeOf<boolean>();
+		});
+		branchCli.command("delete [name]", (c) => {
+			expectTypeOf(c.arg("name")).toEqualTypeOf<string>();
+		});
+		branchCli.mount("feature", featureCli);
+
+		const cli = new Cli({ name: "mycli" });
+		cli.mount("branch", branchCli);
+	});
+
+	it("should infer types correctly for multiple levels of mount() nesting", () => {
+		const deepCli = new Cli({ name: "deep-cli" });
+		deepCli.command("info [topic] --verbose", (c) => {
+			expectTypeOf(c.arg("topic")).toEqualTypeOf<string>();
+			expectTypeOf(c.flag("verbose")).toEqualTypeOf<boolean>();
+			const topic = c.arg("topic");
+			const verbose = c.flag("verbose");
+			expectTypeOf(topic).toEqualTypeOf<string>();
+			expectTypeOf(verbose).toEqualTypeOf<boolean>();
+		});
+
+		const subCli = new Cli({ name: "sub-cli" });
+		subCli.command("foo [bar]", (c) => {
+			expectTypeOf(c.arg("bar")).toEqualTypeOf<string>();
+			const bar = c.arg("bar");
+			expectTypeOf(bar).toEqualTypeOf<string>();
+		});
+		subCli.mount("deep", deepCli);
+
+		const rootCli = new Cli({ name: "root-cli" });
+		rootCli.mount("sub", subCli);
+	});
+
+	it("should infer types correctly for direct subcommand definition with spaces", () => {
+		const cli = new Cli({ name: "mycli" });
+		cli.command("branch list --remote", (c) => {
+			expectTypeOf(c.flag("remote")).toEqualTypeOf<boolean>();
+		});
+	});
 });

@@ -356,15 +356,18 @@ describe("Cli", () => {
 	it("should show usage when no command provided", () => {
 		const cli = new Cli({ name: "test-cli" });
 		const originalLog = console.log;
+		const originalError = console.error;
 		let logOutput = "";
 
 		console.log = (message: string) => {
 			logOutput = message;
 		};
+		console.error = () => {};
 
 		cli.run([]);
 
 		console.log = originalLog;
+		console.error = originalError;
 		expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
 	});
 
@@ -765,10 +768,12 @@ describe("Cli", () => {
 	it("should handle run with empty array or undefined", () => {
 		const cli = new Cli({ name: "test-cli" });
 		const originalLog = console.log;
+		const originalError = console.error;
 		let logOutput = "";
 		console.log = (msg: string) => {
 			logOutput = msg;
 		};
+		console.error = () => {};
 
 		cli.run([]);
 		expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
@@ -778,6 +783,7 @@ describe("Cli", () => {
 		expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
 
 		console.log = originalLog;
+		console.error = originalError;
 	});
 
 	it("should handle option value with spaces if quoted", () => {
@@ -800,5 +806,77 @@ describe("Cli", () => {
 		});
 		cli.run(["commit", "--message", "first", "--message", "second"]);
 		expect(receivedMessage).toBe("second");
+	});
+
+	it("should support mount() for subcommand grouping and nesting", () => {
+		const featureCli = new Cli({ name: "feature-cli" });
+		let featureStarted: string | undefined;
+
+		featureCli.command("start [name]", (c) => {
+			featureStarted = c.arg("name");
+		});
+
+		const branchCli = new Cli({ name: "branch-cli" });
+		let branchListed = false;
+		let branchDeleted: string | undefined;
+
+		branchCli.command("list --remote", (c) => {
+			branchListed = c.flag("remote");
+		});
+		branchCli.command("delete [name]", (c) => {
+			branchDeleted = c.arg("name");
+		});
+		branchCli.mount("feature", featureCli);
+
+		const cli = new Cli({ name: "mycli" });
+		cli.mount("branch", branchCli);
+
+		cli.run(["branch", "list", "--remote"]);
+		expect(branchListed).toBe(true);
+
+		cli.run(["branch", "delete", "dev"]);
+		expect(branchDeleted).toBe("dev");
+
+		cli.run(["branch", "feature", "start", "awesome"]);
+		expect(featureStarted).toBe("awesome");
+	});
+
+	it("should support multiple levels of mount() nesting", () => {
+		const deepCli = new Cli({ name: "deep-cli" });
+		let deepInfoCalled = false;
+		deepCli.command("info", () => {
+			deepInfoCalled = true;
+		});
+
+		const subCli = new Cli({ name: "sub-cli" });
+		let subFooCalled = false;
+		subCli.command("foo", () => {
+			subFooCalled = true;
+		});
+		subCli.mount("deep", deepCli);
+
+		const rootCli = new Cli({ name: "root-cli" });
+		rootCli.mount("sub", subCli);
+
+		rootCli.run(["sub", "foo"]);
+		expect(subFooCalled).toBe(true);
+
+		rootCli.run(["sub", "deep", "info"]);
+		expect(deepInfoCalled).toBe(true);
+	});
+
+	it("should support direct subcommand definition with spaces", () => {
+		const cli = new Cli({ name: "mycli" });
+		let called = false;
+		let remoteFlag: boolean | undefined;
+
+		cli.command("branch list --remote", (c) => {
+			called = true;
+			remoteFlag = c.flag("remote");
+		});
+
+		cli.run(["branch", "list", "--remote"]);
+		expect(called).toBe(true);
+		expect(remoteFlag).toBe(true);
 	});
 });
