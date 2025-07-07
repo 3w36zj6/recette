@@ -893,4 +893,32 @@ describe("Cli", () => {
 		expect(called).toBe(true);
 		expect(remoteFlag).toBe(true);
 	});
+
+	it("should support sync command handler", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let called = false;
+
+		cli.command("sync", (c) => {
+			called = true;
+		});
+
+		await cli.run(["sync"]);
+		expect(called).toBe(true);
+	});
+
+	it("should support async command handler", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let called = false;
+		let asyncResult = "";
+
+		cli.command("async", async (c) => {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			called = true;
+			asyncResult = "done";
+		});
+
+		await cli.run(["async"]);
+		expect(called).toBe(true);
+		expect(asyncResult).toBe("done");
+	});
 });

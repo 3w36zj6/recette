@@ -811,7 +811,13 @@ export class Cli {
 					) => string | undefined,
 		} as Context<typeof commandDef>;
 
-		handler(context);
+		const result = handler(context);
+		if (
+			result != null &&
+			typeof (result as { then?: unknown }).then === "function"
+		) {
+			return result;
+		}
 	}
 
 	/**
