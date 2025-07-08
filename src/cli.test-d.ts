@@ -283,4 +283,38 @@ describe("Cli", () => {
 		// @ts-expect-error
 		cli.command("foo -o=<string>", () => {});
 	});
+
+	it("should infer types correctly for middleware context", () => {
+		const cli = new Cli({ name: "test-cli" });
+
+		cli.use("--verbose|-v", (c, next) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<"verbose">();
+			const verbose = c.flag("verbose");
+			expectTypeOf(verbose).toEqualTypeOf<boolean>();
+			return next();
+		});
+
+		cli.use("--remote", (c, next) => {
+			expectTypeOf(c.flag).parameter(0).toEqualTypeOf<"remote">();
+			const remote = c.flag("remote");
+			expectTypeOf(remote).toEqualTypeOf<boolean>();
+			return next();
+		});
+
+		cli.use("--opt=<string>", (c, next) => {
+			expectTypeOf(c.option).parameter(0).toEqualTypeOf<"opt">();
+			const opt = c.option("opt");
+			expectTypeOf(opt).toEqualTypeOf<string | undefined>();
+			return next();
+		});
+
+		// @ts-expect-error
+		cli.use("copy [src]", (c, next) => {});
+
+		// @ts-expect-error
+		cli.use("copy [src] [dest?]", (c, next) => {});
+
+		// @ts-expect-error
+		cli.use("cat [...files]", (c, next) => {});
+	});
 });

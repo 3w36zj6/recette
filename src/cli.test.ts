@@ -921,4 +921,459 @@ describe("Cli", () => {
 		expect(called).toBe(true);
 		expect(asyncResult).toBe("done");
 	});
+
+	it("should call global middleware before and after command", async () => {
+		type Vars = { calls: string[] };
+		const cli = new Cli<{ Variables: Vars }>({ name: "test-cli" });
+		let finalCalls: string[] = [];
+		cli.use("--verbose", async (c, next) => {
+			const calls = c.get("calls") ?? [];
+			calls.push("before");
+			c.set("calls", calls);
+			await next();
+			calls.push("after");
+			c.set("calls", calls);
+			finalCalls = calls.slice();
+		});
+		cli.command("foo", (c) => {
+			const calls = c.get("calls") ?? [];
+			calls.push("handler");
+			c.set("calls", calls);
+		});
+		await cli.run(["foo", "--verbose"]);
+		expect(finalCalls).toEqual(["before", "handler", "after"]);
+	});
+
+	it("should call only matching middleware", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		const calls: string[] = [];
+		cli.use("bar", async (c, next) => {
+			calls.push("bar-mw");
+			await next();
+		});
+		cli.use("foo", async (c, next) => {
+			calls.push("foo-mw");
+			await next();
+		});
+		let fooRan = false;
+		let barRan = false;
+		cli.command("foo", () => {
+			fooRan = true;
+		});
+		cli.command("bar", () => {
+			barRan = true;
+		});
+		await cli.run(["foo"]);
+		expect(fooRan).toBe(true);
+		expect(barRan).toBe(false);
+		expect(calls).toEqual(["foo-mw"]);
+		calls.length = 0;
+		await cli.run(["bar"]);
+		expect(fooRan).toBe(true);
+		expect(barRan).toBe(true);
+		expect(calls).toEqual(["bar-mw"]);
+	});
+
+	it("should access flag in middleware and handler", async () => {
+		type Vars = { mwFlag?: boolean };
+		const cli = new Cli<{ Variables: Vars }>({ name: "test-cli" });
+		let mwFlag: boolean | undefined;
+		let handlerFlag: boolean | undefined;
+		cli.use("--debug", async (c, next) => {
+			const flag = c.flag("debug");
+			c.set("mwFlag", flag);
+			await next();
+		});
+		cli.command("run", (c) => {
+			mwFlag = c.get("mwFlag");
+			handlerFlag = mwFlag;
+		});
+		await cli.run(["run", "--debug"]);
+		expect(mwFlag).toBe(true);
+		expect(handlerFlag).toBe(true);
+	});
+
+	it("should access option in middleware and handler", async () => {
+		type Vars = { mwOpt?: string };
+		const cli = new Cli<{ Variables: Vars }>({ name: "test-cli" });
+		let mwOpt: string | undefined;
+		let handlerOpt: string | undefined;
+		cli.use("--msg=<string>", async (c, next) => {
+			const opt = c.option("msg");
+			c.set("mwOpt", opt);
+			await next();
+		});
+		cli.command("run", (c) => {
+			mwOpt = c.get("mwOpt");
+			handlerOpt = mwOpt;
+		});
+		await cli.run(["run", "--msg", "hello"]);
+		expect(mwOpt).toBe("hello");
+		expect(handlerOpt).toBe("hello");
+	});
+
+	it("should support multiple middleware chaining", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		const calls: string[] = [];
+		cli.use("--aa", async (c, next) => {
+			calls.push("a1");
+			await next();
+			calls.push("a2");
+		});
+		cli.use("--bb", async (c, next) => {
+			calls.push("b1");
+			await next();
+			calls.push("b2");
+		});
+		cli.command("foo", () => {
+			calls.push("handler");
+		});
+		await cli.run(["foo", "--aa", "--bb"]);
+		expect(calls).toEqual(["a1", "b1", "handler", "b2", "a2"]);
+	});
+
+	it("should skip middleware if path does not match", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let called = false;
+		cli.use("bar", async (c, next) => {
+			called = true;
+			await next();
+		});
+		cli.command("foo", () => {});
+		await cli.run(["foo"]);
+		expect(called).toBe(false);
+	});
+
+	it("should not call next if middleware does not call it", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let mwCalled = false;
+		let handlerCalled = false;
+		cli.use("foo", async (c, next) => {
+			mwCalled = true;
+		});
+		cli.command("foo", () => {
+			handlerCalled = true;
+		});
+		await cli.run(["foo"]);
+		expect(mwCalled).toBe(true);
+		expect(handlerCalled).toBe(false);
+	});
+
+	it("should handle error thrown in middleware", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let errorCaught = false;
+		cli.use("foo", async () => {
+			throw new Error("mw error");
+		});
+		cli.command("foo", () => {});
+		try {
+			await cli.run(["foo"]);
+		} catch (e) {
+			errorCaught = true;
+		}
+		expect(errorCaught).toBe(true);
+	});
+
+	it("should call multiple global middlewares in correct order", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		const calls: string[] = [];
+		cli.use("--verbose", async (c, next) => {
+			calls.push("mw1-before");
+			await next();
+			calls.push("mw1-after");
+		});
+		cli.use("--debug", async (c, next) => {
+			calls.push("mw2-before");
+			await next();
+			calls.push("mw2-after");
+		});
+		let ran = false;
+		cli.command("foo", (c) => {
+			ran = true;
+			calls.push("handler");
+		});
+		await cli.run(["foo", "--verbose", "--debug"]);
+		expect(ran).toBe(true);
+		expect(calls).toEqual([
+			"mw1-before",
+			"mw2-before",
+			"handler",
+			"mw2-after",
+			"mw1-after",
+		]);
+	});
+
+	it("should call middleware only for matching command group", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		const calls: string[] = [];
+		cli.use("group", async (c, next) => {
+			calls.push("group-mw");
+			await next();
+		});
+		cli.command("group foo", () => {
+			calls.push("foo-handler");
+		});
+		cli.command("bar", () => {
+			calls.push("bar-handler");
+		});
+		await cli.run(["group", "foo"]);
+		expect(calls).toEqual(["group-mw", "foo-handler"]);
+		calls.length = 0;
+		await cli.run(["bar"]);
+		expect(calls).toEqual(["bar-handler"]);
+	});
+
+	it("should continue chain if middleware catches error and rethrows", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		const calls: string[] = [];
+		cli.use("--verbose", async (c, next) => {
+			try {
+				await next();
+			} catch {
+				calls.push("caught");
+				throw new Error("fail");
+			}
+		});
+		cli.command("foo", () => {
+			throw new Error("fail");
+		});
+		await expect(cli.run(["foo", "--verbose"])).rejects.toThrow("fail");
+		expect(calls).toEqual(["caught"]);
+	});
+
+	it("should support async middleware with await", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		const calls: string[] = [];
+		cli.use("--verbose", async (c, next) => {
+			await new Promise((r) => setTimeout(r, 10));
+			calls.push("before");
+			await next();
+			calls.push("after");
+		});
+		let ran = false;
+		cli.command("foo --verbose", (c) => {
+			ran = true;
+			calls.push("handler");
+		});
+		await cli.run(["foo", "--verbose"]);
+		expect(ran).toBe(true);
+		expect(calls).toEqual(["before", "handler", "after"]);
+	});
+
+	it("should return undefined for unknown flag/option in middleware context", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let unknownFlag: boolean | undefined;
+		let unknownOption: string | undefined;
+		cli.use("--verbose", async (c, next) => {
+			// @ts-expect-error
+			unknownFlag = c.flag("notexist");
+			// @ts-expect-error
+			unknownOption = c.option("notexist");
+			await next();
+		});
+		cli.command("foo --verbose", () => {});
+		await cli.run(["foo", "--verbose"]);
+		expect(unknownFlag).toBeUndefined();
+		expect(unknownOption).toBeUndefined();
+	});
+
+	it("should not call handler if middleware does not call next", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let mwCalled = false;
+		let handlerCalled = false;
+		cli.use("foo", async (c, next) => {
+			mwCalled = true;
+		});
+		cli.command("foo", () => {
+			handlerCalled = true;
+		});
+		await cli.run(["foo"]);
+		expect(mwCalled).toBe(true);
+		expect(handlerCalled).toBe(false);
+	});
+
+	it("should not call middleware for unknown command", async () => {
+		const originalError = console.error;
+		const originalLog = console.log;
+		console.error = (msg: string) => {};
+		console.log = () => {};
+
+		const cli = new Cli({ name: "test-cli" });
+		let mwCalled = false;
+		cli.use("--verbose", async (c, next) => {
+			mwCalled = true;
+			await next();
+		});
+		await cli.run(["unknown"]);
+		expect(mwCalled).toBe(false);
+		console.error = originalError;
+		console.log = originalLog;
+	});
+
+	it("should not allow next to be called multiple times", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let error: Error | undefined;
+		cli.use("foo", async (c, next) => {
+			await next();
+			try {
+				await next();
+			} catch (e) {
+				error = e as Error;
+			}
+		});
+		cli.command("foo", () => {});
+		await cli.run(["foo"]);
+		expect(error).toBeInstanceOf(Error);
+	});
+
+	it("should propagate context mutation through middleware chain", async () => {
+		type Vars = { custom?: number };
+		const cli = new Cli<{ Variables: Vars }>({ name: "test-cli" });
+		cli.use("--flag", async (c, next) => {
+			c.set("custom", 42);
+			await next();
+		});
+		let received: number | undefined;
+		cli.command("foo --flag", (c) => {
+			received = c.get("custom");
+		});
+		await cli.run(["foo", "--flag"]);
+		expect(received).toBe(42);
+	});
+
+	it("should propagate error thrown in command handler to run() caller", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		cli.command("fail", () => {
+			throw new Error("handler error");
+		});
+		await expect(cli.run(["fail"])).rejects.toThrow("handler error");
+	});
+
+	it("should propagate error thrown in middleware to run() caller", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		cli.use("foo", async () => {
+			throw new Error("mw error");
+		});
+		cli.command("foo", () => {});
+		await expect(cli.run(["foo"])).rejects.toThrow("mw error");
+	});
+
+	it("should propagate error if middleware catches and rethrows", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		cli.use("foo", async (c, next) => {
+			try {
+				await next();
+			} catch (e) {
+				throw new Error("mw rethrow");
+			}
+		});
+		cli.command("foo", () => {
+			throw new Error("handler error");
+		});
+		await expect(cli.run(["foo"])).rejects.toThrow("mw rethrow");
+	});
+
+	it("should allow context mutation in middleware and access in handler", async () => {
+		type Vars = { shared?: string };
+		const cli = new Cli<{ Variables: Vars }>({ name: "test-cli" });
+		cli.use("foo", async (c, next) => {
+			c.set("shared", "ok");
+			await next();
+		});
+		let received: string | undefined;
+		cli.command("foo", (c) => {
+			received = c.get("shared");
+		});
+		await cli.run(["foo"]);
+		expect(received).toBe("ok");
+	});
+
+	it("should distinguish similar command names", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let fooRan = false;
+		let foobarRan = false;
+		cli.command("foo", () => {
+			fooRan = true;
+		});
+		cli.command("foo-bar", () => {
+			foobarRan = true;
+		});
+		await cli.run(["foo"]);
+		expect(fooRan).toBe(true);
+		expect(foobarRan).toBe(false);
+		fooRan = false;
+		foobarRan = false;
+		await cli.run(["foo-bar"]);
+		expect(fooRan).toBe(false);
+		expect(foobarRan).toBe(true);
+	});
+
+	it("should show usage if no command is provided", () => {
+		const cli = new Cli({ name: "test-cli" });
+		const originalLog = console.log;
+		const originalError = console.error;
+		let logOutput = "";
+		console.log = (msg: string) => {
+			logOutput = msg;
+		};
+		console.error = () => {};
+		cli.run([]);
+		expect(logOutput).toMatch(/Usage:/);
+		console.log = originalLog;
+		console.error = originalError;
+	});
+
+	it("should not leak state between multiple run() calls", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let count = 0;
+		cli.command("inc", () => {
+			count++;
+		});
+		await cli.run(["inc"]);
+		await cli.run(["inc"]);
+		expect(count).toBe(2);
+	});
+
+	it("should support deeply nested mount", async () => {
+		const deepCli = new Cli({ name: "deep" });
+		let called = false;
+		deepCli.command("info", () => {
+			called = true;
+		});
+		const subCli = new Cli({ name: "sub" });
+		subCli.mount("deep", deepCli);
+		const rootCli = new Cli({ name: "root" });
+		rootCli.mount("sub", subCli);
+		await rootCli.run(["sub", "deep", "info"]);
+		expect(called).toBe(true);
+	});
+
+	it("should parse mixed args, flags, and options correctly", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let args: string | undefined;
+		let flag: boolean | undefined;
+		let opt: string | undefined;
+		cli.command("foo [bar] --baz --msg=<string>", (c) => {
+			args = c.arg("bar");
+			flag = c.flag("baz");
+			opt = c.option("msg");
+		});
+		await cli.run(["foo", "A", "--baz", "--msg", "hello"]);
+		expect(args).toBe("A");
+		expect(flag).toBe(true);
+		expect(opt).toBe("hello");
+	});
+
+	it("should handle empty string and special characters in args/options", async () => {
+		const cli = new Cli({ name: "test-cli" });
+		let argVal: string | undefined;
+		let optVal: string | undefined;
+		cli.command("foo [bar] --msg=<string>", (c) => {
+			argVal = c.arg("bar");
+			optVal = c.option("msg");
+		});
+		await cli.run(["foo", "", "--msg", "!@#$%^&*()"]);
+		expect(argVal).toBe("");
+		expect(optVal).toBe("!@#$%^&*()");
+	});
 });

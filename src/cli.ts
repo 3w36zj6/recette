@@ -605,44 +605,90 @@ type ValidCommandDef<T extends string> = IsValidCommandDef<T> extends true
 	: never;
 
 /**
- * Context object passed to command handlers containing parsed arguments and flags.
- * @template T - The command definition string used for type-safe argument/flag access
+ * Context object passed to command handlers containing parsed arguments, flags, options, and shared variables.
+ * @template C - The command definition string used for type-safe argument/flag/option access
+ * @template T - The object type containing a `Variables` property for shared context variables
  */
-export type Context<T extends string = string> = {
+export type Context<
+	C extends string = string,
+	T extends { Variables?: Record<string, unknown> } = {
+		Variables?: Record<string, unknown>;
+	},
+> = {
 	/** Type-safe method to access named arguments from command definition */
-	arg: ExtractArgsType<T>;
+	arg: ExtractArgsType<C>;
 	/** Type-safe method to access variadic arguments from command definition */
-	args: ExtractVariadicArgName<T> extends never
+	args: ExtractVariadicArgName<C> extends never
 		? (name: never) => never
-		: <K extends ExtractVariadicArgName<T>>(name: K) => string[];
+		: <K extends ExtractVariadicArgName<C>>(name: K) => string[];
 	/**
 	 * Type-safe method to access boolean flags from command definition.
 	 * @param name - The long flag name (e.g. "long" for --long|-l)
 	 * @returns true if the flag is present, false otherwise
 	 */
-	flag: ExtractFlags<T> extends never
+	flag: ExtractFlags<C> extends never
 		? (name: never) => never
-		: <K extends ExtractFlags<T>>(name: K) => boolean;
+		: <K extends ExtractFlags<C>>(name: K) => boolean;
 	/**
 	 * Type-safe method to access options from command definition.
 	 * @param name - The long option name (e.g. "message" for --message=<string>)
 	 * @returns The option value if present, undefined otherwise
 	 */
-	option: ExtractOptions<T> extends never
+	option: ExtractOptions<C> extends never
 		? (name: never) => never
-		: <K extends ExtractOptions<T>>(name: K) => string | undefined;
+		: <K extends ExtractOptions<C>>(name: K) => string | undefined;
+	/**
+	 * Sets a value in the shared context variables.
+	 * @param key - The variable name (must be defined in Variables)
+	 * @param value - The value to set
+	 */
+	set: <K extends keyof T["Variables"]>(
+		key: K,
+		value: T["Variables"][K],
+	) => void;
+	/**
+	 * Gets a value from the shared context variables.
+	 * @param key - The variable name (must be defined in Variables)
+	 * @returns The value if set, or undefined
+	 */
+	get: <K extends keyof T["Variables"]>(
+		key: K,
+	) => T["Variables"][K] | undefined;
 };
+
+/**
+ * Middleware function type.
+ * @template T - The command definition string for type inference
+ */
+type MiddlewareFn<
+	T extends string = string,
+	V extends Record<string, unknown> = Record<string, unknown>,
+> = (c: Context<T, V>, next: () => Promise<void>) => Promise<void> | void;
+
+/**
+ * Middleware command definition type.
+ * @template T - The command definition string for type inference
+ */
+type MiddlewareCommandDef<T extends string> =
+	T extends `${string}[${string}]${string}` ? never : ValidCommandDef<T>;
 
 /**
  * A lightweight CLI framework for building command-line applications.
  */
-export class Cli {
+export class Cli<
+	T extends { Variables?: Record<string, unknown> } = {
+		Variables?: Record<string, unknown>;
+	},
+> {
 	private name: string;
 	private commands: Map<
 		string,
 		// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
-		{ def: string; handler: (c: Context<any>) => void }
+		{ def: string; handler: (c: any) => void }
 	> = new Map();
+	// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for middlewares with different Context types in a single array.
+	private middlewares: Array<{ path: string; handler: any }> = [];
+	private variables: Partial<T["Variables"]> = {};
 
 	/**
 	 * Creates a new CLI instance.
@@ -659,9 +705,9 @@ export class Cli {
 	 * @param handler - Function to execute when command is called
 	 * @returns The CLI instance for method chaining
 	 */
-	command<T extends string>(
-		name: ValidCommandDef<T>,
-		handler: (c: Context<T>) => void,
+	command<C extends string>(
+		name: ValidCommandDef<C>,
+		handler: (c: Context<C, T>) => void,
 	) {
 		const flagDefs = this.extractFlagDefs(name);
 		const optionDefs = this.extractOptionDefs(name);
@@ -684,8 +730,7 @@ export class Cli {
 
 		this.commands.set(name, {
 			def: name,
-			// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
-			handler: handler as (c: Context<any>) => void,
+			handler,
 		});
 		return this;
 	}
@@ -717,6 +762,28 @@ export class Cli {
 	}
 
 	/**
+	 * Registers a middleware function for the CLI.
+	 * @template T - The command definition string for type inference
+	 * @param path - Middleware path (must not contain positional or variadic arguments)
+	 * @param handler - Middleware function
+	 * @returns The CLI instance for method chaining
+	 * @throws Error if the middleware path contains positional or variadic arguments
+	 */
+	use<C extends string>(
+		path: MiddlewareCommandDef<C>,
+		handler: MiddlewareFn<C, T>,
+	): this {
+		const hasBracket = /\[[^\]]+\]/.test(path);
+		if (hasBracket) {
+			throw new Error(
+				"Middleware path must not contain positional or variadic arguments. Only flags and options are allowed.",
+			);
+		}
+		this.middlewares.push({ path, handler });
+		return this;
+	}
+
+	/**
 	 * Executes the CLI with the provided arguments.
 	 * @param args - Command line arguments (defaults to `process.argv` based on execution context)
 	 * @example
@@ -732,11 +799,11 @@ export class Cli {
 	 * cli.run(['list', 'src']); // dir provided
 	 * ```
 	 */
-	run(args?: string[]) {
+	async run(args?: string[]) {
 		const actualArgs = args ?? this.getProcessArgs();
 		// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
-		let found: { def: string; handler: (c: Context<any>) => void } | null =
-			null;
+		let found: { def: string; handler: (c: any) => void } | null = null;
+		null;
 		let matchedLen = 0;
 		for (const [def, entry] of this.commands) {
 			const defParts = def.split(" ");
@@ -771,9 +838,104 @@ export class Cli {
 			cmdNameParts.push(part);
 		}
 		const restArgs = actualArgs.slice(cmdNameParts.length);
+
+		const matchedMiddlewares = this.middlewares.filter((mw) =>
+			this.isMiddlewareMatch(mw.path, commandDef),
+		);
+
+		const allFlagDefs = [
+			...this.extractFlagDefs(commandDef),
+			...matchedMiddlewares.flatMap((mw) => this.extractFlagDefs(mw.path)),
+		];
+		const allOptionDefs = [
+			...this.extractOptionDefs(commandDef),
+			...matchedMiddlewares.flatMap((mw) => this.extractOptionDefs(mw.path)),
+		];
+
+		const flagDefsMap = new Map<string, { long: string; short?: string }>();
+		for (const f of allFlagDefs) flagDefsMap.set(f.long, f);
+		const optionDefsMap = new Map<string, { long: string; short?: string }>();
+		for (const o of allOptionDefs) optionDefsMap.set(o.long, o);
+
+		const mergedFlagDefs = Array.from(flagDefsMap.values());
+		const mergedOptionDefs = Array.from(optionDefsMap.values());
+
+		const parseFlagsMerged = (args: string[]) => {
+			const result: Record<string, boolean> = {};
+			for (const { long, short } of mergedFlagDefs) {
+				result[long] = false;
+			}
+			for (const arg of args) {
+				if (arg.startsWith("--")) {
+					const name = arg.slice(2);
+					const def = mergedFlagDefs.find((f) => f.long === name);
+					if (def) result[def.long] = true;
+				} else if (arg.startsWith("-") && arg.length === 2) {
+					const name = arg.slice(1);
+					const def = mergedFlagDefs.find((f) => f.short === name);
+					if (def) result[def.long] = true;
+				}
+			}
+			return new Proxy(result, {
+				get(target, prop: string) {
+					return Object.prototype.hasOwnProperty.call(target, prop)
+						? target[prop]
+						: undefined;
+				},
+			}) as Record<string, boolean | undefined>;
+		};
+
+		const parseOptionsMerged = (args: string[]) => {
+			const result: Record<string, string | undefined> = {};
+			for (const { long } of mergedOptionDefs) {
+				result[long] = undefined;
+			}
+			let i = 0;
+			while (i < args.length) {
+				const arg = args[i];
+				if (typeof arg !== "string") {
+					i++;
+					continue;
+				}
+				if (arg.startsWith("--")) {
+					const eqIdx = arg.indexOf("=");
+					if (eqIdx !== -1) {
+						const name = arg.slice(2, eqIdx);
+						const value = arg.slice(eqIdx + 1);
+						const def = mergedOptionDefs.find((o) => o.long === name);
+						if (def) {
+							result[def.long] = value;
+						}
+					} else {
+						const name = arg.slice(2);
+						const nextArg = args[i + 1];
+						const def = mergedOptionDefs.find((o) => o.long === name);
+						if (
+							def &&
+							typeof nextArg === "string" &&
+							!nextArg.startsWith("-")
+						) {
+							result[def.long] = nextArg;
+							i++;
+						}
+					}
+				} else if (arg.startsWith("-") && arg.length === 2) {
+					const name = arg.slice(1);
+					const nextArg = args[i + 1];
+					const def = mergedOptionDefs.find((o) => o.short === name);
+					if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
+						result[def.long] = nextArg;
+						i++;
+					}
+				}
+				i++;
+			}
+			return result;
+		};
+
 		const parsedArgs = this.parseCommandArgs(commandDef, restArgs);
-		const parsedFlags = this.parseFlags(commandDef, restArgs);
-		const parsedOptions = this.parseOptions(commandDef, restArgs);
+		const parsedFlags = parseFlagsMerged(restArgs);
+		const parsedOptions = parseOptionsMerged(restArgs);
 
 		try {
 			this.validateArgs(commandDef, parsedArgs);
@@ -782,6 +944,8 @@ export class Cli {
 			this.showUsage();
 			return;
 		}
+
+		const variables: Partial<T["Variables"]> = {};
 
 		const context = {
 			arg: ((name: string) => {
@@ -809,15 +973,57 @@ export class Cli {
 				: <K extends ExtractOptions<typeof commandDef>>(
 						name: K,
 					) => string | undefined,
-		} as Context<typeof commandDef>;
+			set: <K extends keyof T["Variables"]>(
+				key: K,
+				value: T["Variables"][K],
+			) => {
+				variables[key] = value;
+			},
+			get: <K extends keyof T["Variables"]>(key: K) => {
+				return variables[key];
+			},
+		} as Context<typeof commandDef, T>;
 
-		const result = handler(context);
-		if (
-			result != null &&
-			typeof (result as { then?: unknown }).then === "function"
-		) {
-			return result;
-		}
+		const handlers = [...matchedMiddlewares.map((mw) => mw.handler), handler];
+
+		let idx = 0;
+		const next = async (): Promise<void> => {
+			if (idx >= handlers.length) return;
+			const fn = handlers[idx++];
+			if (!fn) return;
+			let called = false;
+			await fn(context, async () => {
+				if (called) throw new Error("next() called multiple times");
+				called = true;
+				await next();
+			});
+		};
+		await next();
+	}
+
+	/**
+	 * Determines if a middleware path matches a command definition.
+	 * @param mwPath - Middleware path
+	 * @param cmdDef - Command definition
+	 * @returns True if the middleware path matches the command definition, false otherwise
+	 */
+	private isMiddlewareMatch(mwPath: string, cmdDef: string): boolean {
+		if (!mwPath.trim()) return true;
+		const mwTokens = mwPath
+			.trim()
+			.split(/\s+/)
+			.filter(
+				(t) => !t.startsWith("--") && !t.startsWith("-") && !t.startsWith("["),
+			);
+		const cmdTokens = cmdDef
+			.trim()
+			.split(/\s+/)
+			.filter(
+				(t) => !t.startsWith("--") && !t.startsWith("-") && !t.startsWith("["),
+			);
+
+		if (mwTokens.length === 0) return true;
+		return mwTokens.every((token, idx) => cmdTokens[idx] === token);
 	}
 
 	/**
@@ -1203,7 +1409,6 @@ export class Cli {
 			if (!optional) {
 				if (
 					value === undefined ||
-					value === "" ||
 					(!isVariadic && Array.isArray(value) && value.length === 0)
 				) {
 					throw new Error(`Required argument '${name}' is missing`);
