@@ -823,11 +823,9 @@ export class Cli<
 			}
 		}
 		if (!found) {
-			console.error(
-				actualArgs.length > 0
-					? `Unknown command: ${actualArgs[0]}`
-					: `Usage: ${this.name} <command> [arguments...]`,
-			);
+			if (actualArgs.length > 0) {
+				console.error(`Unknown command: ${actualArgs[0]}`);
+			}
 			this.showUsage();
 			return;
 		}
