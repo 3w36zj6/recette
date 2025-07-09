@@ -1,5 +1,5 @@
 {
-	"name": "cli",
+	"name": "recette",
 	"version": "0.1.0",
 	"type": "module",
 	"files": ["dist/"],
