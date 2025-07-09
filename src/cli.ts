@@ -1,3 +1,5 @@
+import path from "node:path";
+
 /**
  * Configuration options for creating a CLI instance.
  */
@@ -1027,51 +1029,37 @@ export class Cli<
 	}
 
 	/**
-	 * Determines if running as built binary by checking if `argv[0]` is a known runtime
-	 * @returns `true` if running as built binary, `false` if running through runtime
+	 * Returns the user arguments, handling various runtime and binary launch patterns.
+	 * @returns Array of user-provided arguments (excluding runtime and script/command)
 	 * @example
-	 * ```typescript
-	 * // Runtime execution: bun script.ts
-	 * // process.argv[0] = "/usr/bin/bun"
-	 * this.isBuiltBinary(); // returns false
-	 *
-	 * // Binary execution: ./my-cli
-	 * // process.argv[0] = "./my-cli"
-	 * this.isBuiltBinary(); // returns true
-	 * ```
-	 */
-	private isBuiltBinary(): boolean {
-		const executablePath = process.argv[0];
-
-		if (!executablePath) return true;
-
-		const executableName = executablePath.split("/").pop()?.split("\\").pop();
-
-		if (!executableName) return true;
-
-		const knownRuntimes = ["node", "bun", "deno"];
-		const isKnownRuntime = knownRuntimes.some(
-			(runtime) =>
-				executableName === runtime || executableName === `${runtime}.exe`,
-		);
-
-		return !isKnownRuntime;
-	}
-
-	/**
-	 * Gets command line arguments based on execution context
-	 * @returns Array of command line arguments excluding executable and script paths
-	 * @example
-	 * ```typescript
-	 * // Runtime: bun script.ts hello world
-	 * this.getProcessArgs(); // returns ["hello", "world"]
-	 *
-	 * // Binary: ./my-cli hello world
-	 * this.getProcessArgs(); // returns ["hello", "world"]
-	 * ```
+	 * // node mycli.ts foo bar        -> ["foo", "bar"]
+	 * // bun mycli.ts foo bar         -> ["foo", "bar"]
+	 * // bun run mycli.ts foo bar     -> ["foo", "bar"]
+	 * // deno run mycli.ts foo bar    -> ["foo", "bar"]
+	 * // ./mycli foo bar              -> ["foo", "bar"]
 	 */
 	private getProcessArgs(): string[] {
-		return this.isBuiltBinary() ? process.argv.slice(1) : process.argv.slice(2);
+		const argv = process.argv;
+		const executablePath = argv[0];
+		const executableName = executablePath ? path.basename(executablePath) : "";
+		const knownRuntimes = ["node", "bun", "deno"];
+		const isKnownRuntime =
+			!!executableName &&
+			knownRuntimes.some(
+				(runtime) =>
+					executableName === runtime || executableName === `${runtime}.exe`,
+			);
+		if (!isKnownRuntime) {
+			return argv.slice(1);
+		}
+		if (
+			(argv[0]?.includes("bun") && argv[1] === "run") ||
+			(argv[0]?.includes("deno") && argv[1] === "run")
+		) {
+			return argv.slice(3);
+		}
+		// node mycli.ts, bun mycli.ts, deno mycli.ts
+		return argv.slice(2);
 	}
 
 	/**
