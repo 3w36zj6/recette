@@ -15,7 +15,8 @@
 		"typecheck": "tsc --noEmit",
 		"test": "vitest --typecheck",
 		"dev": "rslib build --watch",
-		"build": "rslib build"
+		"build": "rslib build",
+		"publint": "publint"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "1.9.4",
