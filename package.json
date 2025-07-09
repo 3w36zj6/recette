@@ -1,12 +1,21 @@
 {
 	"name": "cli",
-	"module": "src/index.ts",
+	"version": "0.1.0",
 	"type": "module",
+	"files": ["dist/"],
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		}
+	},
 	"scripts": {
 		"check": "biome check .",
 		"check:write": "biome check --write .",
 		"typecheck": "tsc --noEmit",
-		"test": "vitest --typecheck"
+		"test": "vitest --typecheck",
+		"dev": "rslib build --watch",
+		"build": "rslib build"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "1.9.4",
