@@ -698,7 +698,7 @@ describe("Cli", () => {
 					c.flag("f");
 				});
 				cli.run(["foo", "-f"]);
-			}).toThrowError(/Invalid flag definition/);
+			}).toThrowError(/Invalid command syntax: "-f"/);
 		});
 
 		it("should throw on invalid flag patterns", () => {
@@ -710,7 +710,7 @@ describe("Cli", () => {
 					c.flag("flag");
 				});
 				cli.run(["foo", "--flag"]);
-			}).toThrowError(/Invalid flag definition/);
+			}).toThrowError(/Invalid command syntax: "-f|--flag"/);
 
 			expect(() => {
 				// @ts-expect-error
@@ -719,7 +719,7 @@ describe("Cli", () => {
 					c.flag("flag");
 				});
 				cli.run(["foo", "--flag"]);
-			}).toThrowError(/Invalid flag definition/);
+			}).toThrowError(/Invalid command syntax: "--flag|--f"/);
 		});
 
 		it("should throw on long flag with only one character", () => {
@@ -731,7 +731,7 @@ describe("Cli", () => {
 					c.flag("v");
 				});
 				cli.run(["build", "--v"]);
-			}).toThrowError(/Invalid flag definition/);
+			}).toThrowError('Invalid command syntax: "--v"');
 		});
 
 		it("should throw on short-only option", () => {
@@ -743,7 +743,7 @@ describe("Cli", () => {
 					c.option("m");
 				});
 				cli.run(["foo", "-m", "val"]);
-			}).toThrowError(/Invalid option definition/);
+			}).toThrowError(/Invalid command syntax: "-m=<string>"/);
 		});
 
 		it("should throw on long option with only one character", () => {
@@ -755,7 +755,7 @@ describe("Cli", () => {
 					c.option("m");
 				});
 				cli.run(["foo", "--m", "val"]);
-			}).toThrowError(/Invalid option definition/);
+			}).toThrowError('Invalid command syntax: "--m=<string>"');
 		});
 
 		it("should throw on double long option", () => {
@@ -767,7 +767,7 @@ describe("Cli", () => {
 					c.option("option");
 				});
 				cli.run(["foo", "--option", "val"]);
-			}).toThrowError(/Invalid (option|flag) definition/);
+			}).toThrowError(/Invalid command syntax: "--option|--o=<string>"/);
 		});
 
 		it("should throw on wrong order of short/long option", () => {
@@ -779,7 +779,7 @@ describe("Cli", () => {
 					c.option("option");
 				});
 				cli.run(["foo", "-m", "val"]);
-			}).toThrowError(/Invalid (option|flag) definition/);
+			}).toThrowError(/Invalid command syntax: "-m|--option=<string>"/);
 		});
 
 		it("should throw if multiple variadic arguments are defined", () => {
@@ -795,7 +795,9 @@ describe("Cli", () => {
 			expect(() => {
 				// @ts-expect-error
 				cli.command("foo [...a] [b]", () => {});
-			}).toThrow(/Variadic argument must be last/);
+			}).toThrow(
+				/No positional or variadic argument allowed after variadic argument/,
+			);
 		});
 
 		it("should validate required arguments", () => {
@@ -833,7 +835,9 @@ describe("Cli", () => {
 			expect(() => {
 				// @ts-expect-error
 				cli.command("foo [...files] [other]", (c) => {});
-			}).toThrowError(/Variadic argument must be last/);
+			}).toThrowError(
+				/No positional or variadic argument allowed after variadic argument/,
+			);
 		});
 
 		it("should return undefined for unknown flag or option", () => {
@@ -868,6 +872,72 @@ describe("Cli", () => {
 
 			console.error = originalError;
 			console.log = originalLog;
+		});
+
+		it("should throw on flag or option names with invalid characters", () => {
+			const cli = new Cli({ name: "test-cli" });
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo --1abc", () => {});
+			}).toThrow(/Invalid command syntax: "--1abc"/);
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo --bar$=<string>", () => {});
+			}).toThrow('Invalid command syntax: "--bar$=<string>"');
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo --bar|-1", () => {});
+			}).toThrow(/Invalid command syntax: "--bar|-1"/);
+		});
+
+		it("should throw on argument names with invalid characters", () => {
+			const cli = new Cli({ name: "test-cli" });
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo [1abc]", () => {});
+			}).toThrow('Invalid command syntax: "[1abc]"');
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo [!bar]", () => {});
+			}).toThrow('Invalid command syntax: "[!bar]"');
+		});
+
+		it("should throw on duplicate short flag or option names", () => {
+			const cli = new Cli({ name: "test-cli" });
+			expect(() => {
+				cli.command("foo --bar|-b --baz|-b", () => {});
+			}).toThrow(/Duplicate short flag name/);
+
+			expect(() => {
+				cli.command("foo --opt|-o=<string> --other|-o=<string>", () => {});
+			}).toThrow(/Duplicate short option name/);
+		});
+
+		it("should throw on unmatched or malformed brackets in argument definition", () => {
+			const cli = new Cli({ name: "test-cli" });
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo [bar", () => {});
+			}).toThrow('Invalid command syntax: "[bar"');
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo bar]", () => {});
+			}).toThrow('Invalid command syntax: "bar]"');
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo []", () => {});
+			}).toThrow('Invalid command syntax: "[]"');
+
+			expect(() => {
+				// @ts-expect-error
+				cli.command("foo [[bar]]", () => {});
+			}).toThrow('Invalid command syntax: "[[bar]]"');
 		});
 	});
 

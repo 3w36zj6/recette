@@ -179,11 +179,13 @@ type StrictTupleToUnion<T extends readonly unknown[]> =
  * ExtractFlagSegments<"list --long|-l --all|-a"> // ["long", "all"]
  * ExtractFlagSegments<"foo --bar|-b --baz"> // ["bar", "baz"]
  */
-type ExtractFlagSegments<T extends string> = FilterValidFlagTokens<
-	SplitTokens<T>
-> extends infer Arr
-	? Arr extends readonly string[]
-		? ExtractLongNamesFromTuple<Arr>
+type ExtractFlagSegments<T extends string> = IsValidFlagPattern<T> extends true
+	? FilterValidFlagTokens<SplitTokens<T>> extends infer Arr
+		? Arr extends readonly string[]
+			? ExtractLongNamesFromTuple<Arr> extends never
+				? never
+				: ExtractLongNamesFromTuple<Arr>
+			: never
 		: never
 	: never;
 
@@ -255,16 +257,219 @@ type FilterValidFlagTokens<Tokens extends readonly string[]> = Tokens extends [
  * IsValidFlagSegment<"-f|--flag"> // false
  * IsValidFlagSegment<"--l"> // false
  */
-type IsValidFlagSegment<S extends string> =
-	S extends `--${infer Long}|-${infer Short}`
-		? IsLong<Long> extends true
-			? IsShort<Short> extends true
+type IsValidFlagSegment<S extends string> = S extends `--${string}|--${string}`
+	? false
+	: S extends `--${infer Long}|-${infer Short}`
+		? IsValidLongFlag<Long> extends true
+			? IsValidShortFlag<Short> extends true
 				? true
 				: false
 			: false
 		: S extends `--${infer Long}`
-			? IsLong<Long>
+			? IsValidLongFlag<Long>
 			: false;
+
+type Alphabet =
+	| "a"
+	| "b"
+	| "c"
+	| "d"
+	| "e"
+	| "f"
+	| "g"
+	| "h"
+	| "i"
+	| "j"
+	| "k"
+	| "l"
+	| "m"
+	| "n"
+	| "o"
+	| "p"
+	| "q"
+	| "r"
+	| "s"
+	| "t"
+	| "u"
+	| "v"
+	| "w"
+	| "x"
+	| "y"
+	| "z"
+	| "A"
+	| "B"
+	| "C"
+	| "D"
+	| "E"
+	| "F"
+	| "G"
+	| "H"
+	| "I"
+	| "J"
+	| "K"
+	| "L"
+	| "M"
+	| "N"
+	| "O"
+	| "P"
+	| "Q"
+	| "R"
+	| "S"
+	| "T"
+	| "U"
+	| "V"
+	| "W"
+	| "X"
+	| "Y"
+	| "Z";
+
+type Digit = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9";
+
+type ValidFlagChar = Alphabet | Digit | "_" | "-";
+
+/**
+ * Returns true if the given string is a valid long flag name.
+ */
+type IsValidLongFlag<T extends string> = T extends `${infer First}${infer Rest}`
+	? First extends Alphabet
+		? IsLong<T> extends true
+			? IsValidFlagChars<Rest> extends true
+				? true
+				: false
+			: false
+		: false
+	: false;
+
+/**
+ * Returns true if all characters in the string are valid flag characters.
+ */
+type IsValidFlagChars<T extends string> = T extends ""
+	? true
+	: T extends `${infer F}${infer R}`
+		? F extends ValidFlagChar
+			? IsValidFlagChars<R>
+			: false
+		: false;
+
+/**
+ * Returns true if the given string is a valid short flag name.
+ */
+type IsValidShortFlag<T extends string> = T extends `${infer F}`
+	? F extends Alphabet
+		? true
+		: false
+	: false;
+
+/**
+ * Returns true if the given string is a valid argument name.
+ */
+type IsValidArgName<T extends string> = T extends `${infer F}${infer R}`
+	? F extends Alphabet | "_"
+		? IsValidFlagChars<R>
+		: false
+	: false;
+
+/**
+ * Returns true if the given bracket segment is valid.
+ */
+type IsValidBracketSegment<T extends string> = T extends `[...${infer Name}]`
+	? Name extends
+			| ""
+			| `[${string}`
+			| `${string}]`
+			| `${string}[${string}`
+			| `${string}]${string}`
+		? false
+		: IsValidArgName<Name>
+	: T extends `[${infer Name}?]`
+		? Name extends
+				| ""
+				| `[${string}`
+				| `${string}]`
+				| `${string}[${string}`
+				| `${string}]${string}`
+			? false
+			: IsValidArgName<Name>
+		: T extends `[${infer Name}]`
+			? Name extends
+					| ""
+					| `[${string}`
+					| `${string}]`
+					| `${string}[${string}`
+					| `${string}]${string}`
+				? false
+				: IsValidArgName<Name>
+			: false;
+
+/**
+ * Splits a command definition string into its units.
+ */
+type SplitCommandUnits<T extends string> =
+	T extends `${infer Head} ${infer Tail}`
+		? [Head, ...SplitCommandUnits<Tail>]
+		: T extends ""
+			? []
+			: [T];
+
+/**
+ * Returns true if the given string is a valid command or subcommand name.
+ */
+type IsValidCommandName<T extends string> = T extends `${infer F}${infer R}`
+	? F extends Lowercase<F> | Uppercase<F>
+		? IsValidCommandNameChars<R>
+		: false
+	: false;
+
+/**
+ * Returns true if all characters in the string are valid command name characters.
+ */
+type IsValidCommandNameChars<T extends string> =
+	T extends `${infer F}${infer R}`
+		? F extends
+				| Lowercase<F>
+				| Uppercase<F>
+				| "_"
+				| "-"
+				| "0"
+				| "1"
+				| "2"
+				| "3"
+				| "4"
+				| "5"
+				| "6"
+				| "7"
+				| "8"
+				| "9"
+			? IsValidCommandNameChars<R>
+			: false
+		: true;
+
+/**
+ * Returns true if the given command unit is valid.
+ */
+type IsValidCommandUnit<T extends string> = IsValidCommandName<T> extends true
+	? true
+	: IsValidBracketSegment<T> extends true
+		? true
+		: IsValidFlagSegment<T> extends true
+			? true
+			: IsValidOptionSegment<T> extends true
+				? true
+				: false;
+
+/**
+ * Returns true if all command units in the list are valid.
+ */
+type AllUnitsValid<T extends readonly string[]> = T extends [
+	infer H,
+	...infer R,
+]
+	? H extends string
+		? IsValidCommandUnit<H> extends true
+			? AllUnitsValid<R extends string[] ? R : []>
+			: false
+		: false
+	: true;
 
 /**
  * Extracts the long name from a flag or option segment.
@@ -335,7 +540,13 @@ type FlagTokensOnly<Tokens extends readonly string[]> = Tokens extends [
 	? Head extends string
 		? Head extends `${string}=<${string}>`
 			? FlagTokensOnly<Tail extends string[] ? Tail : []>
-			: [Head, ...FlagTokensOnly<Tail extends string[] ? Tail : []>]
+			: Head extends
+						| `--${string}`
+						| `--${string}|-${string}`
+						| `-${string}|--${string}`
+						| `-${string}`
+				? [Head, ...FlagTokensOnly<Tail extends string[] ? Tail : []>]
+				: FlagTokensOnly<Tail extends string[] ? Tail : []>
 		: []
 	: [];
 
@@ -362,13 +573,7 @@ type HasInvalidFlagToken<Tokens extends readonly string[]> =
 	FlagTokensOnly<Tokens> extends [infer Head, ...infer Tail]
 		? Head extends string
 			? IsValidFlagSegment<Head> extends false
-				? Head extends
-						| `--${string}`
-						| `--${string}|-${string}`
-						| `-${string}|--${string}`
-						| `-${string}`
-					? true
-					: HasInvalidFlagToken<Tail extends string[] ? Tail : []>
+				? true
 				: HasInvalidFlagToken<Tail extends string[] ? Tail : []>
 			: false
 		: false;
@@ -398,9 +603,7 @@ type IsValidFlagPattern<T extends string> = HasAnyFlagToken<
  * ExtractFlags<"build --verbose"> // "verbose"
  * ExtractFlags<"foo -f"> // never
  */
-type ExtractFlags<T extends string> = IsValidFlagPattern<T> extends true
-	? ExtractFlagSegments<T>
-	: never;
+type ExtractFlags<T extends string> = ExtractFlagSegments<T>;
 
 /**
  * Returns true if the given option segment is valid (long or long|short, both with value).
@@ -417,15 +620,24 @@ type IsValidOptionSegment<S extends string> =
 		? false
 		: S extends `-${string}|--${string}=<${string}>`
 			? false
-			: S extends `--${infer Long}=<${string}>`
-				? IsLong<Long>
-				: S extends `--${infer Long}|-${infer Short}=<${string}>`
-					? IsLong<Long> extends true
-						? IsShort<Short> extends true
-							? true
-							: false
+			: S extends `--${infer Long}|-${infer Short}=<${infer Type}>`
+				? IsValidLongFlag<Long> extends true
+					? IsValidShortFlag<Short> extends true
+						? IsValidOptionType<Type>
+						: false
+					: false
+				: S extends `--${infer Long}=<${infer Type}>`
+					? IsValidLongFlag<Long> extends true
+						? IsValidOptionType<Type>
 						: false
 					: false;
+
+/**
+ * Returns true if the given string is a valid option type.
+ */
+type IsValidOptionType<T extends string> = T extends ""
+	? false
+	: IsValidFlagChars<T>;
 
 /**
  * Returns true if all option segments in the command definition are valid.
@@ -453,13 +665,25 @@ type AllOptionsValid<T extends string> = T extends `${infer Head} ${infer Tail}`
  * ExtractOptions<"foo --bar=<string> --baz=<string>"> // "bar" | "baz"
  * ExtractOptions<"foo --bar|--b=<string>"> // never
  */
-type ExtractOptions<T extends string> = AllOptionsValid<T> extends true
-	? FilterValidOptionTokens<SplitTokens<T>> extends infer Arr
-		? Arr extends string[]
-			? ExtractLongName<Arr[number]>
+type ExtractOptionSegmentsSafe<T extends string> =
+	AllOptionsValid<T> extends true
+		? FilterValidOptionTokens<SplitTokens<T>> extends infer Arr
+			? Arr extends string[]
+				? ExtractLongName<Arr[number]> extends never
+					? never
+					: ExtractLongName<Arr[number]>
+				: never
 			: never
-		: never
-	: never;
+		: never;
+
+/**
+ * Extracts the union of all valid long option names from a command definition string.
+ * Returns never if the definition contains invalid option patterns.
+ * @example
+ * ExtractOptions<"foo --bar=<string> --baz=<string>"> // "bar" | "baz"
+ * ExtractOptions<"foo --bar|--b=<string>"> // never
+ */
+type ExtractOptions<T extends string> = ExtractOptionSegmentsSafe<T>;
 
 /**
  * Extracts all valid long option names from a command definition string.
@@ -517,15 +741,31 @@ type ExtractVariadicArgName<T extends string> =
 	T extends `${string}[...${infer Name}]${string}` ? Name : never;
 
 /**
+ * Returns true if the string contains unmatched brackets.
+ */
+type HasUnmatchedBracket<T extends string> =
+	T extends `${infer _Before}[${infer Rest}`
+		? Rest extends `${infer _Inside}]${infer After}`
+			? HasUnmatchedBracket<After>
+			: true
+		: T extends `${infer _Before}]${infer _Rest}`
+			? true
+			: false;
+
+/**
  * Determines if a command definition is valid at the type level.
  */
-type IsValidCommandDef<T extends string> = IsValidFlagPattern<T> extends true
-	? AllOptionsValid<T> extends true
-		? IsValidBracketPattern<T> extends true
-			? true
+type IsValidCommandDef<T extends string> = HasUnmatchedBracket<T> extends true
+	? false
+	: AllUnitsValid<SplitCommandUnits<T>> extends true
+		? IsValidFlagPattern<T> extends true
+			? AllOptionsValid<T> extends true
+				? IsValidBracketPattern<T> extends true
+					? true
+					: false
+				: false
 			: false
-		: false
-	: false;
+		: false;
 
 /**
  * Validates bracket patterns at the type level (e.g., only one variadic argument, must be last, no duplicates).
@@ -533,19 +773,35 @@ type IsValidCommandDef<T extends string> = IsValidFlagPattern<T> extends true
 type IsValidBracketPattern<T extends string> =
 	ExtractBracketSegments<T> extends infer Segs
 		? Segs extends readonly string[]
-			? CountVariadic<Segs> extends 0 | 1
-				? CountVariadic<Segs> extends 1
-					? VariadicIsLast<Segs> extends true
-						? NoDuplicateArgs<Segs> extends true
+			? AllValidBracketSegments<Segs> extends true
+				? CountVariadic<Segs> extends 0 | 1
+					? CountVariadic<Segs> extends 1
+						? VariadicIsLast<Segs> extends true
+							? NoDuplicateArgs<Segs> extends true
+								? true
+								: false
+							: false
+						: NoDuplicateArgs<Segs> extends true
 							? true
 							: false
-						: false
-					: NoDuplicateArgs<Segs> extends true
-						? true
-						: false
+					: false
 				: false
 			: false
 		: false;
+
+/**
+ * Returns true if all bracket segments in the list are valid.
+ */
+type AllValidBracketSegments<T extends readonly string[]> = T extends [
+	infer H,
+	...infer R,
+]
+	? H extends string
+		? IsValidBracketSegment<H> extends true
+			? AllValidBracketSegments<R extends string[] ? R : []>
+			: false
+		: false
+	: true;
 
 /**
  * Counts the number of variadic arguments in a tuple of bracket segments.
@@ -711,6 +967,8 @@ export class Cli<
 		name: ValidCommandDef<C>,
 		handler: (c: Context<C, T>) => void,
 	) {
+		Cli.validateCommandUnits(name);
+
 		const flagDefs = this.extractFlagDefs(name);
 		const optionDefs = this.extractOptionDefs(name);
 
@@ -775,6 +1033,7 @@ export class Cli<
 		path: MiddlewareCommandDef<C>,
 		handler: MiddlewareFn<C, T>,
 	): this {
+		Cli.validateCommandUnits(path);
 		const hasBracket = /\[[^\]]+\]/.test(path);
 		if (hasBracket) {
 			throw new Error(
@@ -1027,6 +1286,62 @@ export class Cli<
 	}
 
 	/**
+	 * Regular expressions for validating each unit of a command definition.
+	 * - Command and subcommand names: /^[a-zA-Z][\w-]*$/
+	 * - Positional and variadic arguments: /^\[(\.\.\.)?[a-zA-Z_][\w-]*\??\]$/
+	 * - Flags (long and optional short): /^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?$/
+	 * - Options (long and optional short, with value): /^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?=<[\w-]+>$/
+	 */
+	private static readonly COMMAND_UNIT_PATTERNS = [
+		/^[a-zA-Z][\w-]*$/, // command or subcommand name
+		/^\[(\.\.\.)?[a-zA-Z_][\w-]*\??\]$/, // positional or variadic argument
+		/^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?$/, // flag (long and optional short)
+		/^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?=<[\w-]+>$/, // option (long and optional short, with value)
+	];
+
+	/**
+	 * Validates that each unit in the command definition matches an allowed pattern.
+	 * Throws an error if any unit is invalid, if more than one variadic argument is present,
+	 * or if a positional or variadic argument appears after a variadic argument.
+	 *
+	 * @param commandDef - The command definition string to validate
+	 * @throws Error if the command definition contains invalid syntax or structure
+	 */
+	private static validateCommandUnits(commandDef: string) {
+		const units = commandDef.trim().split(/\s+/);
+		for (const unit of units) {
+			if (!Cli.COMMAND_UNIT_PATTERNS.some((re) => re.test(unit))) {
+				throw new Error(`Invalid command syntax: "${unit}"`);
+			}
+		}
+
+		const variadicIdx = units.findIndex((u) =>
+			/^\[\.\.\.[a-zA-Z_][\w-]*\??\]$/.test(u),
+		);
+
+		if (variadicIdx !== -1) {
+			// More than one variadic argument is not allowed
+			if (
+				units.filter((u) => /^\[\.\.\.[a-zA-Z_][\w-]*\??\]$/.test(u)).length > 1
+			) {
+				throw new Error("Only one variadic argument is allowed");
+			}
+			// No positional or variadic argument allowed after a variadic argument
+			const after = units.slice(variadicIdx + 1);
+			const hasPositionalAfter = after.some(
+				(u) =>
+					/^\[[a-zA-Z_][\w-]*\??\]$/.test(u) || // positional argument
+					/^\[\.\.\.[a-zA-Z_][\w-]*\??\]$/.test(u), // variadic argument
+			);
+			if (hasPositionalAfter) {
+				throw new Error(
+					"No positional or variadic argument allowed after variadic argument",
+				);
+			}
+		}
+	}
+
+	/**
 	 * Returns the user arguments, handling various runtime and binary launch patterns.
 	 * @returns Array of user-provided arguments (excluding runtime and script/command)
 	 * @example
@@ -1238,15 +1553,8 @@ export class Cli<
 		const variadicIndex = matches.findIndex((match) =>
 			match.startsWith("[..."),
 		);
-		if (matches.filter((match) => match.startsWith("[...")).length > 1) {
-			throw new Error("Only one variadic argument is allowed");
-		}
-		if (variadicIndex !== -1 && variadicIndex !== matches.length - 1) {
-			throw new Error("Variadic argument must be last");
-		}
 
 		const result: Record<string, string | string[]> = {};
-
 		const { consumedIndexes } = this.parseOptionsWithConsumed(commandDef, args);
 
 		if (variadicIndex === -1) {
@@ -1321,26 +1629,10 @@ export class Cli<
 	 */
 	private extractArgNames(commandDef: string): string[] {
 		const matches = commandDef.match(/\[([^\]]+)\]/g) ?? [];
-		let variadicFound = false;
-		let variadicCount = 0;
-		for (const match of matches) {
-			const argName = match.slice(1, -1);
-			if (argName.startsWith("...")) {
-				variadicCount++;
-			}
-		}
-		if (variadicCount > 1) {
-			throw new Error("Only one variadic argument is allowed");
-		}
-		return matches.map((match, i) => {
+		return matches.map((match) => {
 			let argName = match.slice(1, -1);
 			if (argName.startsWith("...")) {
-				if (variadicFound)
-					throw new Error("Only one variadic argument is allowed");
-				if (i !== matches.length - 1)
-					throw new Error("Variadic argument must be last");
 				argName = argName.slice(3);
-				variadicFound = true;
 			}
 			Cli.checkReserved(argName);
 			return argName;
@@ -1460,16 +1752,6 @@ export class Cli<
 	): Array<{ long: string; short?: string }> {
 		const optionPattern = /--[a-zA-Z][\w-]*(\|-[a-zA-Z])?=<[\w-]+>/g;
 		const commandDefWithoutOptions = commandDef.replace(optionPattern, "");
-
-		if (
-			/--\w+\|--\w+/.test(commandDefWithoutOptions) ||
-			/-\w+\|--\w+/.test(commandDefWithoutOptions) ||
-			(/(?:^|\s)-\w+(?:\s|$)/.test(commandDefWithoutOptions) &&
-				!/--/.test(commandDefWithoutOptions)) ||
-			/(?:^|\s)--[a-zA-Z](?:\s|$)/.test(commandDefWithoutOptions)
-		) {
-			throw new Error(`Invalid flag definition in command: "${commandDef}"`);
-		}
 		const flagPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?/g;
 		const result: Array<{ long: string; short?: string }> = [];
 		const seenLong = new Set<string>();
@@ -1496,9 +1778,8 @@ export class Cli<
 				}
 				seenShort.add(short);
 			}
-			if (typeof long === "string" && long.length >= 2) {
-				result.push({ long, short });
-			}
+			result.push({ long, short });
+
 			match = flagPattern.exec(commandDefWithoutOptions);
 		}
 		return result;
@@ -1533,13 +1814,6 @@ export class Cli<
 	private extractOptionDefs(
 		commandDef: string,
 	): Array<{ long: string; short?: string }> {
-		if (
-			/(?:^|\s)-[a-zA-Z]=<[\w-]+>/.test(commandDef) ||
-			/--[a-zA-Z][\w-]*\|--[a-zA-Z][\w-]*=<[\w-]+>/.test(commandDef) ||
-			/-[a-zA-Z]\|--[a-zA-Z][\w-]*=<[\w-]+>/.test(commandDef)
-		) {
-			throw new Error(`Invalid option definition in command: "${commandDef}"`);
-		}
 		const optionPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?=<[\w-]+>/g;
 		const result: Array<{ long: string; short?: string }> = [];
 		const seenLong = new Set<string>();
@@ -1556,15 +1830,6 @@ export class Cli<
 			Cli.checkReserved(long);
 			if (short) Cli.checkReserved(short);
 
-			if (
-				typeof long !== "string" ||
-				long.length < 2 ||
-				(short && short.length !== 1)
-			) {
-				throw new Error(
-					`Invalid option definition in command: "${commandDef}"`,
-				);
-			}
 			if (seenLong.has(long)) {
 				throw new Error(`Duplicate option name: "${long}"`);
 			}
