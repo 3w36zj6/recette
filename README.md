@@ -1,12 +1,11 @@
 # recette
 
-A type-safe, declarative CLI framework that lets you define your command-line tools as clearly.
+A type-safe, declarative CLI framework that lets you define your command-line tools clearly and intuitively.
 
 ## Features
 
 - **Declarative and Simple API**
-  - Define commands, arguments, flags, and options in a clear and concise way. The API is designed to be intuitive and easy to read, so you can focus on what your CLI should do, not how to parse arguments.
-  The command "signature"—the string that describes the structure of your command (e.g., `copy [src] [dest?] --force|-f`)—makes the command structure explicit and easy to understand.
+  - Define commands, arguments, flags, and options in a clear and concise way. The API is designed to be intuitive and easy to read, so you can focus on what your CLI should do, not how to parse arguments. The command "signature"—a string that describes the structure of your command (e.g., `copy [src] [dest?] --force|-f`)—makes the command structure explicit and easy to understand.
 - **Type Safety by Design**
   - All command definitions are fully type-safe. Argument and option types are inferred directly from your command signature, catching mistakes at compile time and providing a smooth developer experience with IDE autocompletion and error checking.
 - **Strong Constraints for Reliability**
@@ -35,7 +34,11 @@ bun add recette
 > [!NOTE]
 > This framework is experimental. The API is subject to frequent changes.
 
+Here is an example of how to develop a CLI tool using this framework:
+
 ```ts
+// mycli.ts
+
 import { Cli } from "recette"
 
 // Create a new CLI instance
@@ -138,7 +141,25 @@ cli.use("--user=<string>", async (c, next) => {
 cli.run()
 ```
 
+<p align="center">
+  <img src="./docs/images/usage.png" alt="Example of CLI usage output">
+</p>
+
+You can distribute your CLI tool via npmjs, or create a single executable file using Bun or Deno.
+For example, to create a standalone executable with Bun, run the following command:
+
+```sh
+bun build mycli.ts --compile --outfile mycli
+```
+
+For more details, see [Single-file executable – Runtime | Bun Docs](https://bun.sh/docs/bundler/executables).
+
 ## Contributing
+
+> [!NOTE]
+> This framework is a work in progress. The implementation is verbose, tests are not comprehensive, and many features are missing.
+>
+> If you have any useful feedback or suggestions, feel free to contribute!
 
 The development toolchain is managed with [mise](https://mise.jdx.dev/). To install it, run:
 
