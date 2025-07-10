@@ -1064,8 +1064,9 @@ export class Cli<
 		const actualArgs = args ?? this.getProcessArgs();
 		// biome-ignore lint/suspicious/noExplicitAny: Allows storing handlers for commands with different Context types in a single map.
 		let found: { def: string; handler: (c: any) => void } | null = null;
-		null;
 		let matchedLen = 0;
+		let missingArgsDef: string | null = null;
+
 		for (const [def, entry] of this.commands) {
 			const defParts = def.split(" ");
 			const cmdNameParts = [];
@@ -1074,14 +1075,88 @@ export class Cli<
 				cmdNameParts.push(part);
 			}
 			const argParts = actualArgs.slice(0, cmdNameParts.length);
-			if (cmdNameParts.join(" ") === argParts.join(" ")) {
-				if (cmdNameParts.length > matchedLen) {
-					found = entry;
-					matchedLen = cmdNameParts.length;
+			if (cmdNameParts.join(" ") !== argParts.join(" ")) continue;
+
+			const restArgs = actualArgs.slice(cmdNameParts.length);
+			const possibleSub = Array.from(this.commands.keys()).filter(
+				(k) => k.startsWith(`${def} `) && k !== def,
+			);
+			if (possibleSub.length > 0 && restArgs.length > 0) {
+				const subNames = possibleSub.map((k) => {
+					const subParts = k.split(" ").slice(cmdNameParts.length);
+					return subParts;
+				});
+				if (
+					subNames.some(
+						(parts) =>
+							parts.length >= restArgs.length &&
+							parts.slice(0, restArgs.length).join(" ") === restArgs.join(" "),
+					)
+				) {
+					continue;
 				}
 			}
+
+			const argDefs = defParts
+				.slice(cmdNameParts.length)
+				.filter((p) => p.startsWith("["));
+			const requiredArgsCount = argDefs.filter(
+				(a) => !a.endsWith("?]") && !a.startsWith("[..."),
+			).length;
+
+			if (restArgs.length < requiredArgsCount) {
+				if (cmdNameParts.length > matchedLen) {
+					missingArgsDef = def;
+					matchedLen = cmdNameParts.length;
+				}
+				continue;
+			}
+
+			if (cmdNameParts.length > matchedLen) {
+				found = entry;
+				matchedLen = cmdNameParts.length;
+				missingArgsDef = null;
+			}
 		}
+
 		if (!found) {
+			if (missingArgsDef) {
+				const errorHeading = "\x1b[1m\x1b[4m\x1b[31mError:\x1b[0m\x1b[31m";
+				const errorReset = "\x1b[0m";
+				const defParts = missingArgsDef.split(" ");
+				const cmdNameParts = [];
+				for (const part of defParts) {
+					if (part.startsWith("[") || part.startsWith("--")) break;
+					cmdNameParts.push(part);
+				}
+				const argDefs = defParts
+					.slice(cmdNameParts.length)
+					.filter(
+						(p) =>
+							p.startsWith("[") && !p.endsWith("?]") && !p.startsWith("[..."),
+					);
+				const missingArg =
+					argDefs[actualArgs.length - cmdNameParts.length] ||
+					argDefs[0] ||
+					"[arg]";
+				const argName = missingArg.replace(/[\[\]?]/g, "");
+				console.error(
+					`${errorHeading} Required argument '${argName}' is missing${errorReset}`,
+				);
+				this.showCommandUsage(missingArgsDef);
+				return;
+			}
+			const partialPath = actualArgs.join(" ");
+			const subcommands = Array.from(this.commands.keys()).filter((k) =>
+				k.startsWith(`${partialPath} `),
+			);
+			if (subcommands.length > 0) {
+				const usageHeading = "\x1b[1m\x1b[4mUsage:\x1b[0m";
+				for (const sub of subcommands) {
+					this.showCommandUsage(sub);
+				}
+				return;
+			}
 			if (actualArgs.length > 0) {
 				const errorHeading =
 					"\x1b[1m\x1b[4m\x1b[31mUnknown command:\x1b[0m\x1b[31m";

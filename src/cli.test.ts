@@ -268,6 +268,68 @@ describe("Cli", () => {
 			rootCli.run(["foo"]);
 			expect(called).toBe(true);
 		});
+
+		it("should not execute parent command if subcommand path is incomplete", () => {
+			const featureCli = new Cli({ name: "feature-cli" });
+			let featureStarted: string | undefined;
+
+			featureCli.command("start [name]", (c) => {
+				featureStarted = c.arg("name");
+			});
+
+			const branchCli = new Cli({ name: "branch-cli" });
+			let branchCalled = false;
+			branchCli.command("branch", () => {
+				branchCalled = true;
+			});
+			branchCli.mount("feature", featureCli);
+
+			const cli = new Cli({ name: "mycli" });
+			cli.mount("branch", branchCli);
+
+			let output = "";
+			const originalLog = console.log;
+			console.log = (msg: string) => {
+				output = msg;
+			};
+
+			cli.run(["branch", "feature"]);
+
+			console.log = originalLog;
+			expect(branchCalled).toBe(false);
+			expect(stripAnsi(output)).toMatch(/Usage:/);
+		});
+
+		it("should not execute parent command if subcommand exists", () => {
+			const subCli = new Cli({ name: "sub" });
+			let subCalled = false;
+			subCli.command("foo", () => {
+				subCalled = true;
+			});
+
+			const parentCli = new Cli({ name: "parent" });
+			let parentCalled = false;
+			parentCli.command("parent", () => {
+				parentCalled = true;
+			});
+			parentCli.mount("sub", subCli);
+
+			const cli = new Cli({ name: "mycli" });
+			cli.mount("parent", parentCli);
+
+			let output = "";
+			const originalLog = console.log;
+			console.log = (msg: string) => {
+				output = msg;
+			};
+
+			cli.run(["parent", "sub"]);
+
+			console.log = originalLog;
+			expect(parentCalled).toBe(false);
+			expect(subCalled).toBe(false);
+			expect(stripAnsi(output)).toMatch(/Usage:/);
+		});
 	});
 
 	describe("Middleware", () => {
