@@ -1121,7 +1121,7 @@ export class Cli<
 
 		if (!found) {
 			if (missingArgsDef) {
-				const errorHeading = "\x1b[1m\x1b[4m\x1b[31mError:\x1b[0m\x1b[31m";
+				const errorHeading = "\x1b[1m\x1b[37m\x1b[41mError:\x1b[0m\x1b[31m";
 				const errorReset = "\x1b[0m";
 				const defParts = missingArgsDef.split(" ");
 				const cmdNameParts = [];
@@ -1159,7 +1159,7 @@ export class Cli<
 			}
 			if (actualArgs.length > 0) {
 				const errorHeading =
-					"\x1b[1m\x1b[4m\x1b[31mUnknown command:\x1b[0m\x1b[31m";
+					"\x1b[1m\x1b[37m\x1b[41mUnknown command:\x1b[0m\x1b[31m";
 				const errorReset = "\x1b[0m";
 				console.error(`${errorHeading} ${actualArgs[0]}${errorReset}`);
 			}
@@ -1277,7 +1277,7 @@ export class Cli<
 		try {
 			this.validateArgs(commandDef, parsedArgs);
 		} catch (error) {
-			const errorHeading = "\x1b[1m\x1b[4m\x1b[31mError:\x1b[0m\x1b[31m";
+			const errorHeading = "\x1b[1m\x1b[37m\x1b[41mError:\x1b[0m\x1b[31m";
 			const errorReset = "\x1b[0m";
 			console.error(`${errorHeading} ${(error as Error).message}${errorReset}`);
 			this.showCommandUsage(commandDef);
