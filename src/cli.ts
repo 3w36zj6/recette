@@ -1205,7 +1205,7 @@ export class Cli<
 			const errorHeading = "\x1b[1m\x1b[4m\x1b[31mError:\x1b[0m\x1b[31m";
 			const errorReset = "\x1b[0m";
 			console.error(`${errorHeading} ${(error as Error).message}${errorReset}`);
-			this.showUsage();
+			this.showCommandUsage(commandDef);
 			return;
 		}
 
@@ -1520,6 +1520,63 @@ export class Cli<
 				}
 			}
 		}
+	}
+
+	/**
+	 * Shows usage information for a specific command.
+	 * @param commandDef - Command definition string (e.g., `hello [name]`)
+	 */
+	private showCommandUsage(commandDef: string) {
+		const usageHeading = "\x1b[1m\x1b[4mUsage:\x1b[0m";
+		const parts = commandDef.split(" ");
+		const nameParts = [];
+		for (const part of parts) {
+			if (part.startsWith("[") || part.startsWith("--")) break;
+			nameParts.push(part);
+		}
+		const commandName = `\x1b[1m${this.name}\x1b[0m \x1b[1m\x1b[34m${nameParts.join(" ")}\x1b[0m`;
+		const argTokens = parts
+			.slice(nameParts.length)
+			.filter((p) => p.startsWith("["));
+		const flagTokens = parts
+			.slice(nameParts.length)
+			.filter((p) => p.startsWith("--") && !p.includes("=<"));
+		const optionTokens = parts
+			.slice(nameParts.length)
+			.filter((p) => p.startsWith("--") && p.includes("=<"));
+
+		const argsColored = argTokens.map((a) => `\x1b[32m${a}\x1b[0m`).join(" ");
+		const flagStr = flagTokens
+			.map((f) =>
+				f.includes("|-")
+					? f
+							.split("|-")
+							.map((t, i) =>
+								i === 0 ? `\x1b[33m${t}\x1b[0m` : `\x1b[33m-${t}\x1b[0m`,
+							)
+							.join("|")
+					: `\x1b[33m${f}\x1b[0m`,
+			)
+			.join(" ");
+		const optionStr = optionTokens
+			.map((o) =>
+				o.includes("|-")
+					? o
+							.split("|-")
+							.map((t, i) =>
+								i === 0
+									? `\x1b[35m${t}\x1b[0m`
+									: `\x1b[35m-${t.replace("=<string>", "")}=<string>\x1b[0m`,
+							)
+							.join("|")
+					: `\x1b[35m${o}\x1b[0m`,
+			)
+			.join(" ");
+
+		const usage = [commandName, argsColored, flagStr, optionStr]
+			.filter(Boolean)
+			.join(" ");
+		console.log(`${usageHeading} ${usage}`);
 	}
 
 	/**
