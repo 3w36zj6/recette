@@ -1,5 +1,10 @@
 # recette
 
+[![npm version](https://img.shields.io/npm/v/recette)](https://www.npmjs.com/package/recette?activeTab=versions)
+[![npm downloads](https://img.shields.io/npm/d18m/recette)](https://www.npmjs.com/package/recette)
+[![npm license](https://img.shields.io/npm/l/recette)](https://github.com/3w36zj6/recette/blob/HEAD/LICENSE)
+[![CI](https://github.com/3w36zj6/recette/actions/workflows/ci.yaml/badge.svg?branch=main&event=push)](https://github.com/3w36zj6/recette/actions/workflows/ci.yaml)
+
 A type-safe, declarative CLI framework that lets you define your command-line tools clearly and intuitively.
 
 ## Features
