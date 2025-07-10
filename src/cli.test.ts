@@ -256,6 +256,18 @@ describe("Cli", () => {
 			expect(fooRan).toBe(false);
 			expect(foobarRan).toBe(true);
 		});
+
+		it("should support mount at root (empty prefix)", () => {
+			const subCli = new Cli({ name: "sub" });
+			let called = false;
+			subCli.command("foo", () => {
+				called = true;
+			});
+			const rootCli = new Cli({ name: "root" });
+			rootCli.mount("", subCli);
+			rootCli.run(["foo"]);
+			expect(called).toBe(true);
+		});
 	});
 
 	describe("Middleware", () => {

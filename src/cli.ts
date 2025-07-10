@@ -1015,7 +1015,7 @@ export class Cli<
 	 */
 	mount(prefix: string, subCli: Cli) {
 		for (const [def, entry] of subCli.commands) {
-			const newDef = `${prefix} ${def}`;
+			const newDef = prefix ? `${prefix} ${def}` : def;
 			this.commands.set(newDef, { ...entry, def: newDef });
 		}
 		return this;
