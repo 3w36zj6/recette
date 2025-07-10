@@ -1083,7 +1083,10 @@ export class Cli<
 		}
 		if (!found) {
 			if (actualArgs.length > 0) {
-				console.error(`Unknown command: ${actualArgs[0]}`);
+				const errorHeading =
+					"\x1b[1m\x1b[4m\x1b[31mUnknown command:\x1b[0m\x1b[31m";
+				const errorReset = "\x1b[0m";
+				console.error(`${errorHeading} ${actualArgs[0]}${errorReset}`);
 			}
 			this.showUsage();
 			return;
@@ -1199,7 +1202,9 @@ export class Cli<
 		try {
 			this.validateArgs(commandDef, parsedArgs);
 		} catch (error) {
-			console.error(`Error: ${(error as Error).message}`);
+			const errorHeading = "\x1b[1m\x1b[4m\x1b[31mError:\x1b[0m\x1b[31m";
+			const errorReset = "\x1b[0m";
+			console.error(`${errorHeading} ${(error as Error).message}${errorReset}`);
 			this.showUsage();
 			return;
 		}
@@ -1377,26 +1382,142 @@ export class Cli<
 
 	/**
 	 * Shows usage information with available commands
-	 * @example
-	 * ```typescript
-	 * // Output:
-	 * // Usage: my-cli <command> [arguments...]
-	 * //
-	 * // Available commands:
-	 * //   hello [name]
-	 * //   greet [first] [last]
-	 * this.showUsage();
-	 * ```
 	 */
 	private showUsage() {
-		console.log(`Usage: ${this.name} <command> [arguments...]`);
+		const usageHeading = "\x1b[1m\x1b[4mUsage:\x1b[0m";
+		const usageCommand = `\x1b[0m\x1b[1m${this.name}\x1b[0m`;
+		const usageCmd = "\x1b[1m\x1b[34m<command>\x1b[0m";
+		const usageArgs = "\x1b[32m[...args]\x1b[0m";
+		const usageFlag = "\x1b[33m--flag\x1b[0m";
+		const usageOpt = "\x1b[35m--option=<value>\x1b[0m";
+		console.log(
+			`${usageHeading} ${usageCommand} ${usageCmd} ${usageArgs} ${usageFlag} ${usageOpt}`,
+		);
 
 		if (this.commands.size > 0) {
-			console.log("\nAvailable commands:");
+			const groups = new Map<string, Array<[string, string]>>();
 			for (const [commandDef] of this.commands) {
-				const commandName = this.extractCommandName(commandDef);
-				const args = this.extractCommandUsage(commandDef);
-				console.log(`  ${commandName}${args ? ` ${args}` : ""}`);
+				const parts = commandDef.split(" ");
+				const cmdNames = [];
+				for (const part of parts) {
+					if (part.startsWith("[") || part.startsWith("--")) break;
+					cmdNames.push(part);
+				}
+				let group: string;
+				if (cmdNames.length === 1) {
+					group = "Commands";
+				} else if (cmdNames.length > 1) {
+					group = cmdNames[0] ?? "Commands";
+				} else {
+					group = "Commands";
+				}
+				if (!groups.has(group)) groups.set(group, []);
+				groups
+					.get(group)
+					?.push([commandDef, this.extractCommandUsage(commandDef)]);
+			}
+
+			for (const [group, arr] of groups.entries()) {
+				const heading =
+					group === "Commands"
+						? "Main Tasks"
+						: `${group.charAt(0).toUpperCase()}${group.slice(1)}`;
+				const headingStyled = `\x1b[1m\x1b[4m${heading}:\x1b[0m`;
+				console.log(`\n${headingStyled}`);
+
+				const commandsHeading = "\x1b[1m\x1b[4mCommands:\x1b[0m";
+				console.log(`  ${commandsHeading}`);
+
+				const sorted = arr.slice().sort(([a], [b]) => a.localeCompare(b));
+				for (const [commandDef] of sorted) {
+					const parts = commandDef.split(" ");
+					const nameParts = [];
+					for (const part of parts) {
+						if (part.startsWith("[") || part.startsWith("--")) break;
+						nameParts.push(part);
+					}
+					const commandName = nameParts.join(" ");
+					const argTokens = parts
+						.slice(nameParts.length)
+						.filter((p) => p.startsWith("["));
+					const flagTokens = parts
+						.slice(nameParts.length)
+						.filter((p) => p.startsWith("--") && !p.includes("=<"));
+					const optionTokens = parts
+						.slice(nameParts.length)
+						.filter((p) => p.startsWith("--") && p.includes("=<"));
+
+					const commandNameColored = `\x1b[1m\x1b[34m${commandName}\x1b[0m`;
+					const argsColored = argTokens
+						.map((a) => `\x1b[32m${a}\x1b[0m`)
+						.join(" ");
+					const flagStr = flagTokens
+						.map((f) =>
+							f.includes("|-")
+								? f
+										.split("|-")
+										.map((t, i) =>
+											i === 0 ? `\x1b[33m${t}\x1b[0m` : `\x1b[33m-${t}\x1b[0m`,
+										)
+										.join("|")
+								: `\x1b[33m${f}\x1b[0m`,
+						)
+						.join(" ");
+					const optionStr = optionTokens
+						.map((o) =>
+							o.includes("|-")
+								? o
+										.split("|-")
+										.map((t, i) =>
+											i === 0
+												? `\x1b[35m${t}\x1b[0m`
+												: `\x1b[35m-${t.replace("=<string>", "")}=<string>\x1b[0m`,
+										)
+										.join("|")
+								: `\x1b[35m${o}\x1b[0m`,
+						)
+						.join(" ");
+
+					const usage = [commandNameColored, argsColored, flagStr, optionStr]
+						.filter(Boolean)
+						.join(" ");
+					console.log(`    ${usage}`);
+				}
+
+				const groupCommands = arr.map(([commandDef]) => commandDef);
+				const groupMiddlewares = this.middlewares.filter((mw) =>
+					groupCommands.some((cmd) => this.isMiddlewareMatch(mw.path, cmd)),
+				);
+				const groupFlagDefs = [
+					...new Set(
+						groupMiddlewares.flatMap((mw) =>
+							this.extractFlagDefs(mw.path).map((f) =>
+								f.short
+									? `\x1b[33m--${f.long}|-${f.short}\x1b[0m`
+									: `\x1b[33m--${f.long}\x1b[0m`,
+							),
+						),
+					),
+				];
+				const groupOptionDefs = [
+					...new Set(
+						groupMiddlewares.flatMap((mw) =>
+							this.extractOptionDefs(mw.path).map((o) =>
+								o.short
+									? `\x1b[35m--${o.long}|-${o.short}=<string>\x1b[0m`
+									: `\x1b[35m--${o.long}=<string>\x1b[0m`,
+							),
+						),
+					),
+				];
+
+				if (groupFlagDefs.length || groupOptionDefs.length) {
+					const optionsHeading = "\x1b[1m\x1b[4mOptions:\x1b[0m";
+					console.log(`\n  ${optionsHeading}`);
+					console.log(
+						`    ${[...groupFlagDefs, ...groupOptionDefs].join(" ")}`,
+					);
+				}
 			}
 		}
 	}

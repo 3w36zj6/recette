@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { Cli, type Context } from "./cli";
 
+const stripAnsi = (str: string): string => {
+	return str.replace(
+		// biome-ignore lint/suspicious/noControlCharactersInRegex: Removes ANSI color codes from output so tests can compare plain text values.
+		/[\u001b\u009b][[()\]#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+		"",
+	);
+};
+
 describe("Cli", () => {
 	describe("Command Execution", () => {
 		it("should create cli with name", () => {
@@ -49,7 +57,9 @@ describe("Cli", () => {
 
 			console.log = originalLog;
 			console.error = originalError;
-			expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
+			expect(stripAnsi(logOutput)).toBe(
+				"Usage: test-cli <command> [...args] --flag --option=<value>",
+			);
 		});
 
 		it("should show error for unknown command", () => {
@@ -67,7 +77,7 @@ describe("Cli", () => {
 
 			console.error = originalError;
 			console.log = originalLog;
-			expect(errorOutput).toBe("Unknown command: unknown");
+			expect(stripAnsi(errorOutput)).toBe("Unknown command: unknown");
 		});
 
 		it("should support method chaining", () => {
@@ -819,7 +829,9 @@ describe("Cli", () => {
 
 			console.error = originalError;
 			console.log = originalLog;
-			expect(errorOutput).toBe("Error: Required argument 'name' is missing");
+			expect(stripAnsi(errorOutput)).toBe(
+				"Error: Required argument 'name' is missing",
+			);
 		});
 
 		it("should not allow multiple variadic arguments", () => {
@@ -1131,11 +1143,15 @@ describe("Cli", () => {
 			console.error = () => {};
 
 			cli.run([]);
-			expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
+			expect(stripAnsi(logOutput)).toBe(
+				"Usage: test-cli <command> [...args] --flag --option=<value>",
+			);
 
 			logOutput = "";
 			cli.run(undefined);
-			expect(logOutput).toBe("Usage: test-cli <command> [arguments...]");
+			expect(stripAnsi(logOutput)).toBe(
+				"Usage: test-cli <command> [...args] --flag --option=<value>",
+			);
 
 			console.log = originalLog;
 			console.error = originalError;
