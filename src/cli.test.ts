@@ -1441,5 +1441,52 @@ describe("Cli", () => {
 			expect(flag).toBe(true);
 			expect(opt).toBe("hello");
 		});
+
+		it("should parse positional arguments correctly even if flags/options come before them", () => {
+			const cli = new Cli({ name: "test-cli" });
+			let receivedSrc: string | undefined;
+			let receivedDest: string | undefined;
+			let receivedVerbose: boolean | undefined;
+			let receivedUser: string | undefined;
+
+			cli.command("copy [src] [dest?] --verbose --user=<string>", (c) => {
+				receivedSrc = c.arg("src");
+				receivedDest = c.arg("dest");
+				receivedVerbose = c.flag("verbose");
+				receivedUser = c.option("user");
+			});
+
+			cli.run([
+				"copy",
+				"--verbose",
+				"--user",
+				"alice",
+				"fileA.txt",
+				"fileB.txt",
+			]);
+			expect(receivedSrc).toBe("fileA.txt");
+			expect(receivedDest).toBe("fileB.txt");
+			expect(receivedVerbose).toBe(true);
+			expect(receivedUser).toBe("alice");
+
+			cli.run(["copy", "fileA.txt", "--verbose", "--user", "bob", "fileB.txt"]);
+			expect(receivedSrc).toBe("fileA.txt");
+			expect(receivedDest).toBe("fileB.txt");
+			expect(receivedVerbose).toBe(true);
+			expect(receivedUser).toBe("bob");
+
+			cli.run([
+				"copy",
+				"fileA.txt",
+				"fileB.txt",
+				"--verbose",
+				"--user",
+				"carol",
+			]);
+			expect(receivedSrc).toBe("fileA.txt");
+			expect(receivedDest).toBe("fileB.txt");
+			expect(receivedVerbose).toBe(true);
+			expect(receivedUser).toBe("carol");
+		});
 	});
 });

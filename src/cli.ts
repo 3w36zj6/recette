@@ -1557,38 +1557,27 @@ export class Cli<
 		const result: Record<string, string | string[]> = {};
 		const { consumedIndexes } = this.parseOptionsWithConsumed(commandDef, args);
 
+		const positionalArgs = args
+			.map((v, i) =>
+				!v.startsWith("-") && !consumedIndexes.has(i) ? v : undefined,
+			)
+			.filter((v): v is string => v !== undefined);
+
 		if (variadicIndex === -1) {
 			argNames.forEach((name, i) => {
-				if (
-					args[i] !== undefined &&
-					!args[i].startsWith("-") &&
-					!consumedIndexes.has(i)
-				) {
-					result[name] = args[i];
+				if (positionalArgs[i] !== undefined) {
+					result[name] = positionalArgs[i];
 				}
 			});
 		} else {
 			argNames.slice(0, variadicIndex).forEach((name, i) => {
-				if (
-					args[i] !== undefined &&
-					!args[i].startsWith("-") &&
-					!consumedIndexes.has(i)
-				) {
-					result[name] = args[i];
+				if (positionalArgs[i] !== undefined) {
+					result[name] = positionalArgs[i];
 				}
 			});
 			const variadicName = argNames[variadicIndex];
 			if (variadicName !== undefined) {
-				const variadicArgs = args.slice(variadicIndex).filter((_, idx) => {
-					const absIdx = idx + variadicIndex;
-					const val = args[absIdx];
-					return (
-						val !== undefined &&
-						!val.startsWith("-") &&
-						!consumedIndexes.has(absIdx)
-					);
-				});
-				result[variadicName] = variadicArgs;
+				result[variadicName] = positionalArgs.slice(variadicIndex);
 			}
 		}
 
