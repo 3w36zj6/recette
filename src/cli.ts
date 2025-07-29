@@ -1,4 +1,14 @@
 import path from "node:path";
+import {
+	extractArgNames,
+	extractCommandUsage,
+	extractFlagDefs,
+	extractOptionDefs,
+	isMiddlewareMatch,
+	parseCommandArgs,
+	validateArgs,
+	validateCommandUnits,
+} from "./internal/utils/parser";
 
 /**
  * Configuration options for creating a CLI instance.
@@ -967,10 +977,10 @@ export class Cli<
 		name: ValidCommandDef<C>,
 		handler: (c: Context<C, T>) => void,
 	) {
-		Cli.validateCommandUnits(name);
+		validateCommandUnits(name);
 
-		const flagDefs = this.extractFlagDefs(name);
-		const optionDefs = this.extractOptionDefs(name);
+		const flagDefs = extractFlagDefs(name);
+		const optionDefs = extractOptionDefs(name);
 
 		const flagNames = new Set(flagDefs.map((f) => f.long));
 		for (const opt of optionDefs) {
@@ -979,7 +989,7 @@ export class Cli<
 			}
 		}
 
-		const argNames = this.extractArgNames(name);
+		const argNames = extractArgNames(name);
 		const seen = new Set<string>();
 		for (const arg of argNames) {
 			if (seen.has(arg)) {
@@ -1033,7 +1043,7 @@ export class Cli<
 		path: MiddlewareCommandDef<C>,
 		handler: MiddlewareFn<C, T>,
 	): this {
-		Cli.validateCommandUnits(path);
+		validateCommandUnits(path);
 		const hasBracket = /\[[^\]]+\]/.test(path);
 		if (hasBracket) {
 			throw new Error(
@@ -1177,16 +1187,16 @@ export class Cli<
 		const restArgs = actualArgs.slice(cmdNameParts.length);
 
 		const matchedMiddlewares = this.middlewares.filter((mw) =>
-			this.isMiddlewareMatch(mw.path, commandDef),
+			isMiddlewareMatch(mw.path, commandDef),
 		);
 
 		const allFlagDefs = [
-			...this.extractFlagDefs(commandDef),
-			...matchedMiddlewares.flatMap((mw) => this.extractFlagDefs(mw.path)),
+			...extractFlagDefs(commandDef),
+			...matchedMiddlewares.flatMap((mw) => extractFlagDefs(mw.path)),
 		];
 		const allOptionDefs = [
-			...this.extractOptionDefs(commandDef),
-			...matchedMiddlewares.flatMap((mw) => this.extractOptionDefs(mw.path)),
+			...extractOptionDefs(commandDef),
+			...matchedMiddlewares.flatMap((mw) => extractOptionDefs(mw.path)),
 		];
 
 		const flagDefsMap = new Map<string, { long: string; short?: string }>();
@@ -1270,12 +1280,12 @@ export class Cli<
 			return result;
 		};
 
-		const parsedArgs = this.parseCommandArgs(commandDef, restArgs);
+		const parsedArgs = parseCommandArgs(commandDef, restArgs);
 		const parsedFlags = parseFlagsMerged(restArgs);
 		const parsedOptions = parseOptionsMerged(restArgs);
 
 		try {
-			this.validateArgs(commandDef, parsedArgs);
+			validateArgs(commandDef, parsedArgs);
 		} catch (error) {
 			const errorHeading = "\x1b[1m\x1b[37m\x1b[41mError:\x1b[0m\x1b[31m";
 			const errorReset = "\x1b[0m";
@@ -1338,87 +1348,6 @@ export class Cli<
 			});
 		};
 		await next();
-	}
-
-	/**
-	 * Determines if a middleware path matches a command definition.
-	 * @param mwPath - Middleware path
-	 * @param cmdDef - Command definition
-	 * @returns True if the middleware path matches the command definition, false otherwise
-	 */
-	private isMiddlewareMatch(mwPath: string, cmdDef: string): boolean {
-		if (!mwPath.trim()) return true;
-		const mwTokens = mwPath
-			.trim()
-			.split(/\s+/)
-			.filter(
-				(t) => !t.startsWith("--") && !t.startsWith("-") && !t.startsWith("["),
-			);
-		const cmdTokens = cmdDef
-			.trim()
-			.split(/\s+/)
-			.filter(
-				(t) => !t.startsWith("--") && !t.startsWith("-") && !t.startsWith("["),
-			);
-
-		if (mwTokens.length === 0) return true;
-		return mwTokens.every((token, idx) => cmdTokens[idx] === token);
-	}
-
-	/**
-	 * Regular expressions for validating each unit of a command definition.
-	 * - Command and subcommand names: /^[a-zA-Z][\w-]*$/
-	 * - Positional and variadic arguments: /^\[(\.\.\.)?[a-zA-Z_][\w-]*\??\]$/
-	 * - Flags (long and optional short): /^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?$/
-	 * - Options (long and optional short, with value): /^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?=<[\w-]+>$/
-	 */
-	private static readonly COMMAND_UNIT_PATTERNS = [
-		/^[a-zA-Z][\w-]*$/, // command or subcommand name
-		/^\[(\.\.\.)?[a-zA-Z_][\w-]*\??\]$/, // positional or variadic argument
-		/^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?$/, // flag (long and optional short)
-		/^--[a-zA-Z][\w-]+(\|-[a-zA-Z])?=<[\w-]+>$/, // option (long and optional short, with value)
-	];
-
-	/**
-	 * Validates that each unit in the command definition matches an allowed pattern.
-	 * Throws an error if any unit is invalid, if more than one variadic argument is present,
-	 * or if a positional or variadic argument appears after a variadic argument.
-	 *
-	 * @param commandDef - The command definition string to validate
-	 * @throws Error if the command definition contains invalid syntax or structure
-	 */
-	private static validateCommandUnits(commandDef: string) {
-		const units = commandDef.trim().split(/\s+/);
-		for (const unit of units) {
-			if (!Cli.COMMAND_UNIT_PATTERNS.some((re) => re.test(unit))) {
-				throw new Error(`Invalid command syntax: "${unit}"`);
-			}
-		}
-
-		const variadicIdx = units.findIndex((u) =>
-			/^\[\.\.\.[a-zA-Z_][\w-]*\??\]$/.test(u),
-		);
-
-		if (variadicIdx !== -1) {
-			// More than one variadic argument is not allowed
-			if (
-				units.filter((u) => /^\[\.\.\.[a-zA-Z_][\w-]*\??\]$/.test(u)).length > 1
-			) {
-				throw new Error("Only one variadic argument is allowed");
-			}
-			// No positional or variadic argument allowed after a variadic argument
-			const after = units.slice(variadicIdx + 1);
-			const hasPositionalAfter = after.some(
-				(u) =>
-					/^\[[a-zA-Z_][\w-]*\??\]$/.test(u) || // positional argument
-					/^\[\.\.\.[a-zA-Z_][\w-]*\??\]$/.test(u), // variadic argument
-			);
-			if (hasPositionalAfter) {
-				throw new Error(
-					"No positional or variadic argument allowed after variadic argument",
-				);
-			}
-		}
 	}
 
 	/**
@@ -1487,9 +1416,7 @@ export class Cli<
 					group = "Commands";
 				}
 				if (!groups.has(group)) groups.set(group, []);
-				groups
-					.get(group)
-					?.push([commandDef, this.extractCommandUsage(commandDef)]);
+				groups.get(group)?.push([commandDef, extractCommandUsage(commandDef)]);
 			}
 
 			for (const [group, arr] of groups.entries()) {
@@ -1561,12 +1488,12 @@ export class Cli<
 
 				const groupCommands = arr.map(([commandDef]) => commandDef);
 				const groupMiddlewares = this.middlewares.filter((mw) =>
-					groupCommands.some((cmd) => this.isMiddlewareMatch(mw.path, cmd)),
+					groupCommands.some((cmd) => isMiddlewareMatch(mw.path, cmd)),
 				);
 				const groupFlagDefs = [
 					...new Set(
 						groupMiddlewares.flatMap((mw) =>
-							this.extractFlagDefs(mw.path).map((f) =>
+							extractFlagDefs(mw.path).map((f) =>
 								f.short
 									? `\x1b[33m--${f.long}|-${f.short}\x1b[0m`
 									: `\x1b[33m--${f.long}\x1b[0m`,
@@ -1577,7 +1504,7 @@ export class Cli<
 				const groupOptionDefs = [
 					...new Set(
 						groupMiddlewares.flatMap((mw) =>
-							this.extractOptionDefs(mw.path).map((o) =>
+							extractOptionDefs(mw.path).map((o) =>
 								o.short
 									? `\x1b[35m--${o.long}|-${o.short}=<string>\x1b[0m`
 									: `\x1b[35m--${o.long}=<string>\x1b[0m`,
@@ -1652,439 +1579,5 @@ export class Cli<
 			.filter(Boolean)
 			.join(" ");
 		console.log(`${usageHeading} ${usage}`);
-	}
-
-	/**
-	 * Extracts command usage format for display
-	 * @param commandDef - Command definition string
-	 * @returns Formatted argument string for usage display
-	 * @example
-	 * ```typescript
-	 * this.extractCommandUsage("hello [name]"); // returns "[name]"
-	 * this.extractCommandUsage("greet [first] [last]"); // returns "[first] [last]"
-	 * this.extractCommandUsage("build"); // returns ""
-	 * ```
-	 */
-	private extractCommandUsage(commandDef: string): string {
-		const parts = commandDef.split(" ");
-		const args = parts.slice(1); // Remove command name
-		return args.join(" ");
-	}
-
-	/**
-	 * Finds a registered command by its name.
-	 * @param commandName - The command name to search for
-	 * @returns Tuple of `[command definition, handler]` or `null` if not found
-	 * @example
-	 * ```typescript
-	 * // Internal usage - finds command by name
-	 * const result = this.findCommand('hello');
-	 * if (result) {
-	 *   const [commandDef, handler] = result;
-	 *   // commandDef: "hello [name]"
-	 *   // handler: function to execute
-	 * }
-	 * ```
-	 */
-	private findCommand(commandName: string) {
-		const tryNames = [commandName];
-		if (Array.isArray(commandName)) {
-			tryNames.push(commandName.join(" "));
-		}
-		for (const [def, entry] of this.commands) {
-			if (def === commandName) return entry;
-		}
-		return null;
-	}
-
-	/**
-	 * Extracts the command name from a command definition string.
-	 * @param commandDef - Command definition (e.g., `hello [name]`)
-	 * @returns The command name (e.g., `hello`)
-	 * @example
-	 * ```typescript
-	 * this.extractCommandName("hello [name]"); // returns "hello"
-	 * this.extractCommandName("build"); // returns "build"
-	 * this.extractCommandName("greet [first] [last]"); // returns "greet"
-	 * ```
-	 */
-	private extractCommandName(commandDef: string): string {
-		return commandDef.split(" ")[0] || "";
-	}
-
-	/**
-	 * Parses options from command line arguments based on the command definition.
-	 * @param commandDef - Command definition string
-	 * @param args - Raw command line arguments
-	 * @returns An object with two properties:
-	 *   - options: Parsed options object with long option names as keys and string or undefined values
-	 *   - consumedIndexes: Set of argument indexes that were consumed as option values
-	 * @example
-	 * this.parseOptionsWithConsumed("commit --message=<string>", ["--message", "hi"]);
-	 * // returns { options: { message: "hi" }, consumedIndexes: Set([1]) }
-	 */
-	private parseOptionsWithConsumed(
-		commandDef: string,
-		args: string[],
-	): {
-		options: Record<string, string | undefined>;
-		consumedIndexes: Set<number>;
-	} {
-		const optionDefs = this.extractOptionDefs(commandDef);
-		const result: Record<string, string | undefined> = {};
-		const consumedIndexes = new Set<number>();
-		for (const { long } of optionDefs) {
-			result[long] = undefined;
-		}
-		let i = 0;
-		while (i < args.length) {
-			const arg = args[i];
-			if (typeof arg !== "string") {
-				i++;
-				continue;
-			}
-			if (arg.startsWith("--")) {
-				const eqIdx = arg.indexOf("=");
-				if (eqIdx !== -1) {
-					const name = arg.slice(2, eqIdx);
-					const value = arg.slice(eqIdx + 1);
-					const def = optionDefs.find((o) => o.long === name);
-					if (def) {
-						result[def.long] = value;
-						consumedIndexes.add(i);
-					}
-				} else {
-					const name = arg.slice(2);
-					const nextArg = args[i + 1];
-					const def = optionDefs.find((o) => o.long === name);
-					if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
-						result[def.long] = nextArg;
-						consumedIndexes.add(i + 1);
-						i++;
-					}
-				}
-			} else if (arg.startsWith("-") && arg.length === 2) {
-				const name = arg.slice(1);
-				const nextArg = args[i + 1];
-				const def = optionDefs.find((o) => o.short === name);
-				if (def && typeof nextArg === "string" && !nextArg.startsWith("-")) {
-					result[def.long] = nextArg;
-					consumedIndexes.add(i + 1);
-					i++;
-				}
-			}
-			i++;
-		}
-		return { options: result, consumedIndexes };
-	}
-
-	/**
-	 * Parses command line arguments based on the command definition.
-	 * @param commandDef - Command definition string
-	 * @param args - Raw command line arguments
-	 * @returns Parsed arguments object with named parameters and extras in `_` array
-	 * @example
-	 * ```typescript
-	 * this.parseCommandArgs("hello [name]", ["world"]);
-	 * // returns { name: "world", _: [] }
-	 *
-	 * this.parseCommandArgs("greet [first] [last]", ["John", "Doe", "extra"]);
-	 * // returns { first: "John", last: "Doe", _: ["extra"] }
-	 * ```
-	 */
-	private parseCommandArgs(
-		commandDef: string,
-		args: string[],
-	): Record<string, string | string[]> {
-		const matches = commandDef.match(/\[([^\]]+)\]/g) ?? [];
-		const argNames = matches.map((match) => {
-			const argName = match.slice(1, -1);
-			if (argName.startsWith("...")) return argName.slice(3);
-			return argName.endsWith("?") ? argName.slice(0, -1) : argName;
-		});
-
-		const variadicIndex = matches.findIndex((match) =>
-			match.startsWith("[..."),
-		);
-
-		const result: Record<string, string | string[]> = {};
-		const { consumedIndexes } = this.parseOptionsWithConsumed(commandDef, args);
-
-		const positionalArgs = args
-			.map((v, i) =>
-				!v.startsWith("-") && !consumedIndexes.has(i) ? v : undefined,
-			)
-			.filter((v): v is string => v !== undefined);
-
-		if (variadicIndex === -1) {
-			argNames.forEach((name, i) => {
-				if (positionalArgs[i] !== undefined) {
-					result[name] = positionalArgs[i];
-				}
-			});
-		} else {
-			argNames.slice(0, variadicIndex).forEach((name, i) => {
-				if (positionalArgs[i] !== undefined) {
-					result[name] = positionalArgs[i];
-				}
-			});
-			const variadicName = argNames[variadicIndex];
-			if (variadicName !== undefined) {
-				result[variadicName] = positionalArgs.slice(variadicIndex);
-			}
-		}
-
-		return result;
-	}
-
-	private static readonly RESERVED_NAMES = [
-		"constructor",
-		"prototype",
-		"__proto__",
-	];
-
-	/**
-	 * Checks if a name is reserved and throws an error if so.
-	 * @param name - The name to check
-	 * @throws Error if the name is reserved
-	 */
-	private static checkReserved(name: string) {
-		if (Cli.RESERVED_NAMES.includes(name)) {
-			throw new Error(
-				`Reserved word used as argument/flag/option name: "${name}"`,
-			);
-		}
-	}
-
-	/**
-	 * Extracts argument names from a command definition string.
-	 * @param commandDef - Command definition string
-	 * @returns Array of argument names found in brackets (with optional markers removed)
-	 * @example
-	 * ```typescript
-	 * this.extractArgNames("hello [name]"); // returns ["name"]
-	 * this.extractArgNames("list [dir?]"); // returns ["dir"]
-	 * this.extractArgNames("build [src?] [dest]"); // returns ["src", "dest"]
-	 * this.extractArgNames("greet [first] [last]"); // returns ["first", "last"]
-	 * this.extractArgNames("build"); // returns []
-	 * ```
-	 */
-	private extractArgNames(commandDef: string): string[] {
-		const matches = commandDef.match(/\[([^\]]+)\]/g) ?? [];
-		return matches.map((match) => {
-			let argName = match.slice(1, -1);
-			if (argName.startsWith("...")) {
-				argName = argName.slice(3);
-			}
-			Cli.checkReserved(argName);
-			return argName;
-		});
-	}
-
-	/**
-	 * Extracts argument metadata from a command definition string.
-	 * @param commandDef - Command definition string
-	 * @returns Array of argument metadata with optional flags
-	 * @example
-	 * ```typescript
-	 * this.extractArgMetadata("list [dir?]");
-	 * // returns [{ name: "dir", optional: true }]
-	 *
-	 * this.extractArgMetadata("build [src?] [dest]");
-	 * // returns [{ name: "src", optional: true }, { name: "dest", optional: false }]
-	 * ```
-	 */
-	private extractArgMetadata(
-		commandDef: string,
-	): Array<{ name: string; optional: boolean }> {
-		const matches = commandDef.match(/\[([^\]]+)\]/g);
-		return matches
-			? matches.map((match) => {
-					const argWithBrackets = match.slice(1, -1);
-					const optional = argWithBrackets.endsWith("?");
-					let name = optional ? argWithBrackets.slice(0, -1) : argWithBrackets;
-					if (name.startsWith("...")) {
-						name = name.slice(3);
-					}
-					return { name, optional };
-				})
-			: [];
-	}
-
-	/**
-	 * Validates command arguments based on the command definition.
-	 * @param commandDef - Command definition string
-	 * @param parsedArgs - Parsed arguments object
-	 * @throws Error if required arguments are missing
-	 */
-	private validateArgs(
-		commandDef: string,
-		parsedArgs: Record<string, string | string[]>,
-	): void {
-		const argMetadata = this.extractArgMetadata(commandDef);
-
-		for (const { name, optional } of argMetadata) {
-			const value = parsedArgs[name];
-			const isVariadic = commandDef.includes(`[...${name}]`);
-			if (!optional) {
-				if (
-					value === undefined ||
-					(!isVariadic && Array.isArray(value) && value.length === 0)
-				) {
-					throw new Error(`Required argument '${name}' is missing`);
-				}
-			}
-		}
-	}
-
-	/**
-	 * Parses flags from command line arguments based on the command definition.
-	 * @param commandDef - Command definition string
-	 * @param args - Raw command line arguments
-	 * @returns Parsed flags object with long flag names as keys and boolean values
-	 * @example
-	 * this.parseFlags("list --long|-l --all|-a", ["--long", "--all"]);
-	 * // returns { long: true, all: true }
-	 * this.parseFlags("list --long|-l --all|-a", ["-l"]);
-	 * // returns { long: true, all: false }
-	 */
-	private parseFlags(
-		commandDef: string,
-		args: string[],
-	): Record<string, boolean | undefined> {
-		const flagDefs = this.extractFlagDefs(commandDef);
-		const result: Record<string, boolean> = {};
-		for (const { long, short } of flagDefs) {
-			result[long] = false;
-		}
-		for (const arg of args) {
-			if (arg.startsWith("--")) {
-				const name = arg.slice(2);
-				const def = flagDefs.find((f) => f.long === name);
-				if (def) result[def.long] = true;
-			} else if (arg.startsWith("-") && arg.length === 2) {
-				const name = arg.slice(1);
-				const def = flagDefs.find((f) => f.short === name);
-				if (def) result[def.long] = true;
-			}
-		}
-		return new Proxy(result, {
-			get(target, prop: string) {
-				return Object.prototype.hasOwnProperty.call(target, prop)
-					? target[prop]
-					: undefined;
-			},
-		}) as Record<string, boolean | undefined>;
-	}
-
-	/**
-	 * Extracts flag definitions from a command definition string.
-	 * Throws an Error if the definition contains invalid flag patterns.
-	 * @param commandDef - Command definition string
-	 * @returns Array of flag definitions { long, short }
-	 * @throws Error if the command definition contains invalid flag patterns
-	 * @example
-	 * this.extractFlagDefs("list --long|-l --all|-a");
-	 * // returns [{ long: "long", short: "l" }, { long: "all", short: "a" }]
-	 * this.extractFlagDefs("foo --bar");
-	 * // returns [{ long: "bar", short: undefined }]
-	 */
-	private extractFlagDefs(
-		commandDef: string,
-	): Array<{ long: string; short?: string }> {
-		const optionPattern = /--[a-zA-Z][\w-]*(\|-[a-zA-Z])?=<[\w-]+>/g;
-		const commandDefWithoutOptions = commandDef.replace(optionPattern, "");
-		const flagPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?/g;
-		const result: Array<{ long: string; short?: string }> = [];
-		const seenLong = new Set<string>();
-		const seenShort = new Set<string>();
-		let match: RegExpExecArray | null = flagPattern.exec(
-			commandDefWithoutOptions,
-		);
-		while (match !== null) {
-			const long = match[1];
-			const short = match[2] ? match[2].slice(2) : undefined;
-			if (!long) {
-				match = flagPattern.exec(commandDefWithoutOptions);
-				continue;
-			}
-			Cli.checkReserved(long);
-			if (short) Cli.checkReserved(short);
-			if (seenLong.has(long)) {
-				throw new Error(`Duplicate flag name: "${long}"`);
-			}
-			seenLong.add(long);
-			if (short) {
-				if (seenShort.has(short)) {
-					throw new Error(`Duplicate short flag name: "${short}"`);
-				}
-				seenShort.add(short);
-			}
-			result.push({ long, short });
-
-			match = flagPattern.exec(commandDefWithoutOptions);
-		}
-		return result;
-	}
-
-	/**
-	 * Parses options from command line arguments based on the command definition.
-	 * @param commandDef - Command definition string
-	 * @param args - Raw command line arguments
-	 * @returns Parsed options object with long option names as keys and string or undefined values
-	 * @example
-	 * this.parseOptions("commit --message=<string>", ["--message", "hi"]);
-	 * // returns { message: "hi" }
-	 */
-	private parseOptions(
-		commandDef: string,
-		args: string[],
-	): Record<string, string | undefined> {
-		return this.parseOptionsWithConsumed(commandDef, args).options;
-	}
-
-	/**
-	 * Extracts option definitions from a command definition string.
-	 * Throws an Error if the definition contains invalid option patterns.
-	 * @param commandDef - Command definition string
-	 * @returns Array of option definitions { long, short }
-	 * @throws Error if the command definition contains invalid option patterns
-	 * @example
-	 * this.extractOptionDefs("commit --message=<string> --author=<string>");
-	 * // returns [{ long: "message", short: undefined }, { long: "author", short: undefined }]
-	 */
-	private extractOptionDefs(
-		commandDef: string,
-	): Array<{ long: string; short?: string }> {
-		const optionPattern = /--([a-zA-Z][\w-]*)(\|-[a-zA-Z])?=<[\w-]+>/g;
-		const result: Array<{ long: string; short?: string }> = [];
-		const seenLong = new Set<string>();
-		const seenShort = new Set<string>();
-		let match: RegExpExecArray | null = optionPattern.exec(commandDef);
-
-		while (match !== null) {
-			const long = match[1];
-			const short = match[2] ? match[2].slice(2) : undefined;
-			if (typeof long !== "string") {
-				match = optionPattern.exec(commandDef);
-				continue;
-			}
-			Cli.checkReserved(long);
-			if (short) Cli.checkReserved(short);
-
-			if (seenLong.has(long)) {
-				throw new Error(`Duplicate option name: "${long}"`);
-			}
-			seenLong.add(long);
-			if (short) {
-				if (seenShort.has(short)) {
-					throw new Error(`Duplicate short option name: "${short}"`);
-				}
-				seenShort.add(short);
-			}
-			result.push({ long, short });
-			match = optionPattern.exec(commandDef);
-		}
-		return result;
 	}
 }
