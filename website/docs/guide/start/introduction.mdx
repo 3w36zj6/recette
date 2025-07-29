@@ -1,0 +1,210 @@
+# Introduction
+
+Recette is a type-safe, declarative CLI framework for TypeScript. It lets you define your command-line tools clearly and intuitively, focusing on what your CLI should do rather than how to parse arguments. With Recette, you describe commands, arguments, flags, and options using a simple and explicit command signature, making your CLI structure easy to understand and maintain.
+
+> [!INFO]
+> Recette is experimental and the API may change frequently.
+
+## Why Recette
+
+Recette is designed around the following core features:
+
+- **Declarative and Simple API**
+  Define commands, arguments, flags, and options in a clear and concise way. The command signature makes the structure explicit and easy to understand.
+
+- **Type Safety by Design**
+  All command definitions are fully type-safe. Argument and option types are inferred, providing IDE autocompletion and error checking.
+
+- **Strong Constraints for Reliability**
+  Strict rules prevent ambiguous CLI specifications and runtime errors, making your CLI tools robust and maintainable.
+
+- **Flexible Middleware Support**
+  Easily add pre- and post-command logic or shared functionality with middleware.
+
+- **Subcommand Grouping**
+  Organize complex CLI structures with subcommands and command groups.
+
+- **Easy Distribution**
+  Distribute your CLI via npm, Bun, or Deno, or create a single executable file.
+
+## Features
+
+### Declarative Command Definition
+
+Recette uses a declarative approach to define commands. You specify the command structure using a signature string, and implement the logic in a handler function. For example:
+
+```ts
+cli.command("copy [src] [dest?] --force|-f", (c) => {
+  const src = c.arg("src");
+  const dest = c.arg("dest");
+  const force = c.flag("force");
+  // Command logic here
+});
+```
+
+### Type Safety
+
+All command definitions are fully type-safe. Argument and option types are inferred, providing IDE autocompletion and error checking.
+
+```ts
+cli.command("upload [file] --public|-p --tag=<string> [...extra]", (c) => {
+  const file = c.arg("file"); // string (required positional argument)
+  const isPublic = c.flag("public"); // boolean (flag)
+  const tag = c.option("tag"); // string | undefined (option with value)
+  const extra = c.args("extra"); // string[] (variadic arguments)
+});
+```
+
+### Strong Constraints for Reliability
+
+Strict rules prevent ambiguous CLI specifications and runtime errors, making your CLI tools robust and maintainable.
+
+```ts
+// Argument of type '"move [file] [file]"' is not assignable to parameter of type 'never'.
+cli.command("move [file] [file]", (c) => {});
+```
+### Flexible Middleware Support
+
+Easily add pre- and post-command logic or shared functionality with middleware.
+
+```ts
+cli.use("--verbose|-v", async (c, next) => {
+  if (c.flag("verbose")) console.log("[verbose] Command execution started");
+  await next();
+  if (c.flag("verbose")) console.log("[verbose] Command execution finished");
+});
+```
+
+### Subcommand Grouping
+
+Organize complex CLI structures with subcommands and command groups.
+
+```ts
+const branchCli = new Cli({ name: "branch" });
+branchCli.command("list --remote", (c) => {
+  const remote = c.flag("remote");
+  console.log(`Branch list (remote: ${remote})`);
+});
+cli.mount("branch", branchCli);
+```
+
+### Easy Distribution
+
+Distribute your CLI via npm, Bun, or Deno, or create a single executable file. For example, with Bun:
+
+```sh
+bun build mycli.ts --compile --outfile mycli
+```
+
+## Example Usage
+
+Here is a simple example of a CLI tool built with Recette:
+
+```ts title="mycli.ts"
+import { Cli } from "recette"
+
+// Create a new CLI instance
+type Variables = {
+  userName?: string
+}
+
+const cli = new Cli<{ Variables: Variables }>({
+  name: "mycli",
+})
+
+// Simple positional argument
+cli.command("hello [name]", (c) => {
+  const name = c.arg("name") // (name: "name") => string
+  console.log(`Hello, ${name}!`)
+})
+
+// Required and optional positional arguments
+cli.command("copy [src] [dest?]", (c) => {
+  const src = c.arg("src") // (name: "src") => string
+  const dest = c.arg("dest") // (name: "dest") => string | undefined
+  console.log(`Copy from ${src} to ${dest ?? "(not specified)"}`)
+})
+
+// Optional argument and flags
+cli.command("list [dir?] --long|-l --all|-a", (c) => {
+  const dir = c.arg("dir") // (name: "dir") => string | undefined
+  const isLong = c.flag("long") // (name: "long" | "all"): boolean
+  const showAll = c.flag("all") // (name: "long" | "all"): boolean
+  console.log(`List ${dir ?? "current directory"} (long=${isLong}, all=${showAll})`)
+})
+
+// Options with values
+cli.command("commit --message|-m=<string> --author=<string>", (c) => {
+  const message = c.option("message") // (name: "message" | "author"): string | undefined
+  const author = c.option("author") // (name: "message" | "author"): string | undefined
+  console.log(`Commit: "${message}" by ${author}`)
+})
+
+// Variadic arguments
+cli.command("remove [...files]", (c) => {
+  const files = c.args("files") // (name: "files") => string[]
+  console.log(`Remove files: ${files.join(", ")}`)
+})
+
+// Accessing stored variables
+cli.command("whoami", (c) => {
+  const user = c.get("userName") // (key: "userName") => string | undefined
+  if (user) {
+    console.log(`Current user: ${user}`)
+  } else {
+    console.log("No user specified.")
+  }
+})
+
+// Subcommand group
+const branchCli = new Cli({ name: "branch" })
+
+branchCli.command("list --remote", (c) => {
+  const remote = c.flag("remote")
+  console.log(`Branch list (remote: ${remote})`)
+})
+branchCli.command("delete [name]", (c) => {
+  const name = c.arg("name")
+  console.log(`Delete branch: ${name}`)
+})
+
+// Nested command group
+const featureCli = new Cli({ name: "feature" })
+
+featureCli.command("start [name]", (c) => {
+  const name = c.arg("name")
+  console.log(`Start feature: ${name}`)
+})
+
+// Mounting subcommands
+branchCli.mount("feature", featureCli)
+cli.mount("branch", branchCli)
+
+// Middleware
+cli.use("--verbose|-v", async (c, next) => {
+  if (c.flag("verbose")) {
+    console.log("[verbose] Command execution started")
+  }
+  await next()
+  if (c.flag("verbose")) {
+    console.log("[verbose] Command execution finished")
+  }
+})
+
+cli.use("--user=<string>", async (c, next) => {
+  const user = c.option("user")
+  if (user) {
+    c.set("userName", user)
+  }
+  await next()
+})
+
+// Run CLI
+cli.run()
+```
+
+For more advanced examples, see the [Quick start](/guide/start/getting-started).
+
+## Try Recette
+
+Go to [Quick start](/guide/start/getting-started) to learn how to use Recette to quickly build your own CLI tool.

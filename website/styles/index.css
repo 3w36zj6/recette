@@ -1,0 +1,19 @@
+:root {
+	/* Modify theme color */
+	--rp-c-brand: #ff7fa7;
+	--rp-home-hero-name-background: linear-gradient(
+		120deg,
+		var(--rp-c-brand) 0%,
+		#f7cfa1 100%
+	);
+	--rp-home-mask-background-image: conic-gradient(
+		from 180deg at 50% 50%,
+		var(--rp-c-brand) 0deg,
+		180deg,
+		#f7cfa1 1turn
+	);
+	--rp-c-brand-dark: #ff5c8a;
+	--rp-c-brand-darker: #ff3576;
+	--rp-c-brand-light: #ffb3d1;
+	--rp-c-brand-lighter: #ffd6ec;
+}
