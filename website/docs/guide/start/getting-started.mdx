@@ -1,0 +1,77 @@
+# Quick start
+
+import { PackageManagerTabs } from 'rspress/theme';
+
+## 1. Initialize the project
+
+{/*
+### Method 1: create via CLI
+
+You can create a Recette project using the `create-recette` cli:
+
+<PackageManagerTabs command="create recette@latest" />
+
+Input the project directory name, and then the cli will create the project for you.
+
+### Method 2: manual creation
+*/ }
+
+First, you can create a new directory with the following command:
+
+```bash
+mkdir recette-app && cd recette-app
+```
+
+Execute `npm init -y` to initialize a project. You can install Recette using npm, pnpm, yarn or bun:
+
+<PackageManagerTabs command="install recette" />
+
+## 2. Write your first CLI
+
+> [!TIP]
+> Modern runtimes like Node.js (v23.6.0+), Bun, and Deno support TypeScript out of the box or with minimal configuration. We recommend using Bun or Deno for the best TypeScript experience.
+
+
+Then, create a TypeScript file for your CLI (e.g. `mycli.ts`):
+
+```bash
+touch mycli.ts
+```
+
+Open `mycli.ts` and add the following code:
+
+```ts title="mycli.ts"
+import { Cli } from "recette";
+
+const cli = new Cli({ name: "mycli" });
+
+cli.command("hello [name]", (c) => {
+  const name = c.arg("name");
+  console.log(`Hello, ${name}!`);
+});
+
+cli.run();
+```
+
+## 3. Run your CLI
+
+You can run your CLI directly with Node.js (v20+), Bun, or Deno:
+
+```bash
+# Node.js (v23.6.0+)
+node mycli.ts hello world
+
+# Bun
+bun mycli.ts hello world
+
+# Deno
+deno run mycli.ts hello world
+```
+
+## 4. Build a standalone executable
+
+You can bundle your CLI into a single executable file using Bun:
+
+```bash
+bun build mycli.ts --compile --outfile mycli
+```
