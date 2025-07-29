@@ -1,4 +1,5 @@
 import * as path from "node:path";
+import { pluginOpenGraph } from "rsbuild-plugin-open-graph";
 import { defineConfig } from "rspress/config";
 
 export default defineConfig({
@@ -16,4 +17,14 @@ export default defineConfig({
 		],
 	},
 	globalStyles: path.join(__dirname, "styles/index.css"),
+	builderConfig: {
+		plugins: [
+			pluginOpenGraph({
+				title: "Recette",
+				type: "website",
+				url: "https://3w36zj6.github.io/recette/",
+				description: "A type-safe, declarative CLI framework for TypeScript.",
+			}),
+		],
+	},
 });
